@@ -7,3 +7,5 @@ elf2uf2
 CMakeFiles
 CMakeCache.txt
 _deps
+/Makefile
+/cmake_install.cmake
