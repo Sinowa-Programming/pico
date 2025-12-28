@@ -1,0 +1,9 @@
+pioasm
+pioasm-install
+pico-sdk
+generated
+FREERTOS_KERNEL
+elf2uf2
+CMakeFiles
+CMakeCache.txt
+_deps
