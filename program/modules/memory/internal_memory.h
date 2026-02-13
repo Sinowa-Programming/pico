@@ -8,8 +8,9 @@
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
 
+class ExternalMemory;
+
 class VMM {
-    uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side )
     int16_t page_to_frame[NUM_PAGES];                       // Virtual Page ID -> physical sram frame idx
     uint32_t frame_to_page[MAX_PHYSICAL_FRAMES];            // Physical sram frame idx -> Virtual Page ID
     uint8_t lru_list[MAX_PHYSICAL_FRAMES];                  // Map of each age index to a frame
@@ -27,7 +28,7 @@ class VMM {
     int8_t get_available_frame();
 
     // ==== Page Fault ====
-    void clear_page(uint32_t page_id, bool block_until_cleared = false);
+    void clear_page(uint32_t page_id, bool block_until_cleared);
     // --------------------
 
     // ==== LRU code ====
@@ -45,11 +46,13 @@ class VMM {
     }
 
 public:
+    uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side )
+
     VMM();
     void add_external_memory(ExternalMemory *external_memory) {
         _external_memory = external_memory;
     }
-    void start(const char* taskName = "VMM_Task", uint16_t stackSize = 2048, UBaseType_t priority = tskIDLE_PRIORITY + 1);
+    void start();//const char* taskName = "VMM_Task", uint16_t stackSize = 2048, UBaseType_t priority = tskIDLE_PRIORITY + 1);
 
     // Communication with External Memory
     void notify_completion(MemoryRequest finished_req);

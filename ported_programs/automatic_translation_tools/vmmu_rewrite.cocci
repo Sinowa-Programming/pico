@@ -6,10 +6,10 @@ identifier p;
 expression E;
 @@
 - T* p = E;
-+ VPtr<T> p(vmm, (uint32_t)E);
++ VPtr<T> p((uint32_t)E);
 
 // Rule 2: Handle pointer assignments
-// p = some_address; -> p = VPtr<T>(vmm, some_address);
+// p = some_address; -> p = VPtr<T>(some_address);
 @@
 type T;
 identifier p;
@@ -18,7 +18,7 @@ expression E;
   VPtr<T> p;
   ...
 - p = E;
-+ p = VPtr<T>(vmm, (uint32_t)E);
++ p = VPtr<T>((uint32_t)E);
 
 // Rule 3: Replace dereferences (*p) with the object itself
 // Because VPtr has 'operator T()', *p is usually redundant or
@@ -34,11 +34,24 @@ identifier p;
 expression PTR, VAL, LEN;
 @@
 - memset(PTR, VAL, LEN);
-+ vmemset(vmm, (uint32_t)PTR, VAL, LEN);
++ vmemset((uint32_t)PTR, VAL, LEN);
 
 // Rule 5: Replace memcpy with vmemcpy
 @@
 expression DEST, SRC, LEN;
 @@
 - memcpy(DEST, SRC, LEN);
-+ vmemcpy(vmm, (uint32_t)DEST, (uint32_t)SRC, LEN);
++ vmemcpy((uint32_t)DEST, (uint32_t)SRC, LEN);
+
+// Rule: Transform malloc into a static virtual-heap-resident array
+// Note: This is a conceptual representation of the transformation logic
+// TODO: FINISH THIS
+@ r @
+type T;
+identifier p;
+expression SIZE;
+@@
+- T* p = (T*)malloc(SIZE);
++ // Static allocation in the virtual section
++ static T _v_storage_##p[SIZE / sizeof(T)] __attribute__((section(".vheap")));
++ VPtr<T> p((uint32_t)&_v_storage_##p);

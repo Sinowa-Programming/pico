@@ -1,0 +1,40 @@
+[binaries]
+# Adjust these prefixes if your toolchain differs (e.g. just 'gcc' if it's in path)
+c = '/workspaces/pico/ported_programs/ported_dav1d/wrap-arm-none-eabi-gcc.sh'
+cpp = 'arm-none-eabi-g++'
+ar = 'arm-none-eabi-ar'
+strip = 'arm-none-eabi-strip'
+nm = 'arm-none-eabi-nm'
+ld = 'arm-none-eabi-ld'
+
+[host_machine]
+system = 'bare_metal'
+cpu_family = 'arm'
+cpu = 'cortex-m33'
+endian = 'little'
+
+[properties]
+# Path to the Pico SDK root
+pico_sdk_path = '/workspaces/pico/pico-sdk'
+
+# Tell the CMake module which platform to target
+cmake_set_PICO_PLATFORM = 'rp2350'
+cmake_set_PICO_BOARD    = 'pico2'
+
+# Replace standard C lib: we pass these to CMake to ensure the SDK
+cmake_set_PICO_STDLIB_REPLACEMENT = 'pico_stdlib'
+
+# Use the SDK's own toolchain configuration as a base for CMake subprojects
+cmake_toolchain_file = '/path/to/pico-sdk/external/pico_sdk_import.cmake'
+
+# Critical: Tells meson not to try running the binary on your PC
+needs_exe_wrapper = true
+has_function_clock_gettime = true   # Skips the clock_gettime
+#skip_sanity_check = true
+
+[built-in options]
+# '--no-warnings' added due to lots of undefined declarations
+c_args = ['--no-warnings', '-nostdinc', '-D_TIMER_T_DECLARED', '-D_CLOCKID_T_DECLARED', '-D_UNISTD_H_', '-D_MODE_T_DECLARED', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include-fixed', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include', '-I/usr/lib/arm-none-eabi/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include/private', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/FreeRTOS-Plus-POSIX/include', '-include', '/workspaces/pico/ported_programs/posix_wrapper/wrapper_main.h','-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=hard', '-mfpu=fpv5-sp-d16', '-ffunction-sections', '-fdata-sections', '-Ofast']
+
+# Linker flags (GC sections enabled to remove unused code). The nosys.specs provides empty stubs for later integration
+c_link_args = ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=hard', '-mfpu=fpv5-sp-d16', '--specs=nosys.specs', '-Wl,--gc-sections']

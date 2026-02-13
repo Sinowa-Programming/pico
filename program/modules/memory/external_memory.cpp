@@ -1,5 +1,6 @@
 #include "external_memory.h"
 
+#ifdef SPI_COMM
 void __isr ExternalMemory::dma_handler() {
     dma_irqn_acknowledge_channel(0, dma_rx_chan);   // The 0 stands for core 0( the 0th hardware status register )
 
@@ -52,7 +53,7 @@ void ExternalMemory::run() {
     }
 }
 
-ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size = 10) {
+ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
     mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest));
     setup_dma();
 }
@@ -62,5 +63,6 @@ void ExternalMemory::start() {
 }
 
 void ExternalMemory::submit_request(MemoryRequest &req) {
-    xQueueSend(mem_requests, req, portMAX_DELAY);
+    xQueueSend(mem_requests, &req, portMAX_DELAY);
 }
+#endif

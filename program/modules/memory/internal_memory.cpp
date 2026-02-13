@@ -12,7 +12,7 @@ int8_t VMM::get_available_frame() {
     }
 }
 
-void VMM::clear_page(uint32_t page_id, bool block_until_cleared = false)
+void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 {
     // If the page is dirty, you can't remove it yet, write the page to external memory and handle it when it has been copied out
     uint8_t frame_idx = page_to_frame[page_id];
@@ -101,7 +101,7 @@ void VMM::run() {
             // We are not going to clear dirty frames as it will be accessed again.
             uint32_t p_id = frame_to_page[i];
             if (p_id != 0xFFFFFFFF && !is_dirty.get(p_id)) {
-                clear_page(p_id);
+                clear_page(p_id, false);
             }
         }
     }
@@ -121,16 +121,17 @@ VMM::VMM() {
 }
 
 
-void VMM::start(const char* taskName = "VMM_Task", uint16_t stackSize = 2048, UBaseType_t priority = tskIDLE_PRIORITY + 1) {
+void VMM::start() {
     if (vmmTaskHandle == NULL) {
         xTaskCreate(
             vmmTaskWrapper, // The static bridge
-            taskName,
-            stackSize,
+            "VMM_Task",
+            4096,
             this,           // Pass 'this' so the task knows which instance to use
-            priority,
+            tskIDLE_PRIORITY + 1,
             &vmmTaskHandle
         );
+        vTaskCoreAffinitySet(vmmTaskHandle, SYSTEM_CORE_AFFINITY);
     }
 }
 
@@ -149,15 +150,18 @@ void VMM::notify_completion(MemoryRequest finished_req) {
         vTaskResume(finished_req.task);
     }
     else if (finished_req.op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
-        clear_page(finished_req.v_page_id);
+        clear_page(finished_req.v_page_id, false);
     }
 
     xSemaphoreGive(vmmMutex);
 }
 
 uint8_t& VMM::access(uint32_t virtual_addr, bool is_write) {
-    uint32_t page_id = virtual_addr / PAGE_SIZE;
-    uint32_t offset = virtual_addr % PAGE_SIZE;
+    // Normalize the address by subtracting the base
+    uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
+
+    uint32_t page_id = relative_addr / PAGE_SIZE;
+    uint32_t offset = relative_addr % PAGE_SIZE;
 
     uint8_t frame_idx;
 

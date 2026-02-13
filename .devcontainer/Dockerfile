@@ -12,6 +12,9 @@ RUN apt update \
     gcc-arm-none-eabi \
     libnewlib-arm-none-eabi \
     libstdc++-arm-none-eabi-newlib \
+    meson \
+    ninja-build \
+    nasm \
     && rm -rf /var/lib/apt/lists/* /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log /var/cache/ \
     coccinelle
 
