@@ -25,7 +25,6 @@ class VMM {
 
     ExternalMemory *_external_memory;
 
-    int8_t get_available_frame();
 
     // ==== Page Fault ====
     void clear_page(uint32_t page_id, bool block_until_cleared);
@@ -58,6 +57,7 @@ public:
     void notify_completion(MemoryRequest finished_req);
 
     // Interface functions for user code
+    uint8_t get_available_frame();
     uint8_t& access(uint32_t virtual_addr, bool is_write);
     uint8_t* get_physical_ptr(uint32_t virtual_addr);
 };

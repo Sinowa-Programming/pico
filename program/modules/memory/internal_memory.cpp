@@ -1,16 +1,5 @@
 #include "internal_memory.h"
 
-int8_t VMM::get_available_frame() {
-    if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
-        // RAM is not full: Use the first empty slot
-        uint8_t frame = lru_list[num_occupied_frames];
-        num_occupied_frames++;
-        return frame;
-    } else {
-        // RAM is full: Evict the last occupied slot (the LRU)
-        return lru_list[MAX_PHYSICAL_FRAMES - 1];
-    }
-}
 
 void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 {
@@ -155,6 +144,20 @@ void VMM::notify_completion(MemoryRequest finished_req) {
 
     xSemaphoreGive(vmmMutex);
 }
+
+
+uint8_t VMM::get_available_frame() {
+    if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
+        // RAM is not full: Use the first empty slot
+        uint8_t frame = lru_list[num_occupied_frames];
+        num_occupied_frames++;
+        return frame;
+    } else {
+        // RAM is full: Evict the last occupied slot (the LRU)
+        return lru_list[MAX_PHYSICAL_FRAMES - 1];
+    }
+}
+
 
 uint8_t& VMM::access(uint32_t virtual_addr, bool is_write) {
     // Normalize the address by subtracting the base

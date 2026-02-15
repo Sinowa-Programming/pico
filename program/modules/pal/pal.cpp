@@ -56,3 +56,18 @@ void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
         count -= chunk;
     }
 }
+
+void *vcalloc(size_t num, size_t size)
+{
+    size_t alloc_pages_needed = size / PAGE_SIZE;
+    for(size_t pages_alloced = 0; pages_alloced < alloc_pages_needed; ++pages_alloced){
+        // Get an available memory frame.
+        uint8_t frame_num = vmm.get_available_frame();
+
+        // calloc the page
+        memset(vmm.get_physical_ptr(frame_num));
+    
+        // 
+    }
+    return nullptr;
+}
