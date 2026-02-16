@@ -31,6 +31,27 @@ void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
     --num_occupied_frames;
 }
 
+uint8_t VMM::get_available_frame() {
+    uint32_t frame;
+    if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
+        // RAM is not full: Use the first empty slot
+        frame = num_occupied_frames;
+        num_occupied_frames++;
+    } else {
+        // RAM is full
+        // Find a slot that isn't dirty so it can be immediately overwritten.
+        frame = is_dirty.find_first_zero();
+        if(frame == -1) {
+            // Remove the last page and wait until it is removed
+            clear_page(frame_to_page[MAX_PHYSICAL_FRAMES - 1], true);
+            frame = MAX_PHYSICAL_FRAMES - 1;
+        } else {
+            clear_page(frame_to_page[frame], false);
+        }
+    }
+    return frame;
+}
+
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
 void VMM::move_to_back(uint8_t frame_idx) {
     int pos = -1;
@@ -146,19 +167,6 @@ void VMM::notify_completion(MemoryRequest finished_req) {
 }
 
 
-uint8_t VMM::get_available_frame() {
-    if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
-        // RAM is not full: Use the first empty slot
-        uint8_t frame = lru_list[num_occupied_frames];
-        num_occupied_frames++;
-        return frame;
-    } else {
-        // RAM is full: Evict the last occupied slot (the LRU)
-        return lru_list[MAX_PHYSICAL_FRAMES - 1];
-    }
-}
-
-
 uint8_t& VMM::access(uint32_t virtual_addr, bool is_write) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
@@ -214,4 +222,13 @@ uint8_t* VMM::get_physical_ptr(uint32_t virtual_addr) {
     // Assumes page is already resident (call access() first to ensure it)
     int16_t frame_idx = page_to_frame[page_id];
     return &sram_frames[frame_idx][offset];
+}
+
+uint8_t VMM::alloc()
+{
+    uint8_t frame_idx = get_available_frame();
+
+    // While the frame has been cleared, it still needs a memory address, which is provided by the controller
+    
+    return 0;
 }

@@ -28,6 +28,7 @@ class VMM {
 
     // ==== Page Fault ====
     void clear_page(uint32_t page_id, bool block_until_cleared);
+    uint8_t get_available_frame();  // Returns the first available frame's index( Will boot a page is needed. )
     // --------------------
 
     // ==== LRU code ====
@@ -57,9 +58,12 @@ public:
     void notify_completion(MemoryRequest finished_req);
 
     // Interface functions for user code
-    uint8_t get_available_frame();
     uint8_t& access(uint32_t virtual_addr, bool is_write);
     uint8_t* get_physical_ptr(uint32_t virtual_addr);
+
+    // memory allocation functions
+    uint8_t alloc();    // Returns the frame_idx to the provided frame
+    void* malloc(size_t physical_size);
 };
 
 #endif  // INTERNAL_MEMORY_H

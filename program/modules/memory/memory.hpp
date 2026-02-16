@@ -15,9 +15,14 @@
 #define VIRTUAL_MEMORY_BASE 0x20082000
 
 
+// Internal defines
+// The amount of bits in the bit array that is resident in the device( They will change the most. )
+const uint32_t MAX_RESIDENT_BITS = MAX_PHYSICAL_FRAMES / 32;
+
 typedef enum {
-    READ,
-    WRITE
+    READ,       // The device wants to pull data from the host
+    WRITE,      // The device wants to write data to the host
+    ALLOC       // The device needs the host to provide it with an empty page
 } MemoryOp;
 
 struct MemoryRequest {
@@ -34,6 +39,18 @@ class BitArray {
         inline void set(uint32_t i)   { storage[i >> 5] |= (1UL << (i & 31)); }
         inline void clear(uint32_t i) { storage[i >> 5] &= ~(1UL << (i & 31)); }
         inline bool get(uint32_t i)   { return storage[i >> 5] & (1UL << (i & 31)); }
+        int32_t find_first_zero() const {
+            for (uint32_t i = 0; i < MAX_RESIDENT_BITS; i++) {
+                uint32_t inv = ~storage[i]; // Invert to look for the lowest 1
+
+                if (inv != 0) {
+                    // __builtin_ctz counts trailing zeros.
+                    // On M33, the compiler maps this to RBIT + CLZ.
+                    return (i * 32) + __builtin_ctz(inv);
+                }
+            }
+            return -1;
+        }
 };
 
 #endif // MEMORY_H
