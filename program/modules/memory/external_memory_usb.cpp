@@ -13,31 +13,36 @@ void ExternalMemory::run() {
     while (true) {
         // Wait for a request from the VMM
         if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY)) {
-            if (active_req.op == MemoryOp::READ) {
+            if (active_req->op == MemoryOp::READ) {
                 // The page is not in memory. Load it.
                 CommunicationHeader header = {
                     MCU_ID,
-                    PAGE_TABLE_TRANSMISSION,
+                    PAGE_TABLE_READ,
                     2,  // The two bytes of the page id to read
                 };
                 send_chunked((uint8_t*)&header, sizeof(header));
-                send_chunked((uint8_t* )&(active_req.v_page_id), 2);
-            } else {
+                send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+            } else if(active_req->op == MemoryOp::WRITE) {
                 CommunicationHeader header = {
                     MCU_ID,
-                    PAGE_TABLE_TRANSMISSION,
+                    PAGE_TABLE_WRITE,
                     PAGE_SIZE + 2,  // The actual data + the two bytes of the page id to write
                 };
                 send_chunked((uint8_t*)&header, sizeof(header));
-                send_chunked((uint8_t* )&(active_req.v_page_id), 2);
-                send_chunked(active_req.sram_buffer, 4096);
+                send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+                send_chunked(active_req->sram_buffer, 4096);
+            } else if(active_req->op == MemoryOp::ALLOC) {
+                CommunicationHeader header = {
+                    MCU_ID,
+                    PAGE_TABLE_ALLOC,
+                    0,              // Just telling the page system to give me a page number
+                };
+                send_chunked((uint8_t*)&header, sizeof(header));
             }
+
 
             // Sleep until the task is done
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-            // 3. Notify the VMM or requester task that the data is ready
-            internal_memory->notify_completion(active_req);
         }
     }
 }
@@ -57,16 +62,22 @@ void ExternalMemory::submit_request(MemoryRequest &req) {
 }
 
 uint8_t* ExternalMemory::get_memory_request_sram_buffer() {
-    return active_req.sram_buffer;
+    return active_req->sram_buffer;
 }
 
-void ExternalMemory::notify_completion() {
+void ExternalMemory::notify_transfer_completion() {
     // Notify the ExternalMemory Task to process the full page
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    vTaskNotifyGiveFromISR(run_task, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    xTaskNotifyGive(run_task);
 }
 
+// Tell the External Memory Manager that a memory address has been allocated to it.
+void ExternalMemory::notify_allocation_completion(uint32_t v_mem_addr)
+{
+    active_req->v_page_id = v_mem_addr / PAGE_SIZE;
+    internal_memory->notify_completion(active_req);
+    xTaskNotifyGive(run_task);
+}
 
 // === Helpers for transferring over full speed usb ===
 // Helper: Writes data to USB FIFO, yielding if FIFO is full

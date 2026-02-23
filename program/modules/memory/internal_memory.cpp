@@ -1,6 +1,5 @@
 #include "internal_memory.h"
 
-
 void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 {
     // If the page is dirty, you can't remove it yet, write the page to external memory and handle it when it has been copied out
@@ -50,6 +49,31 @@ uint8_t VMM::get_available_frame() {
         }
     }
     return frame;
+}
+
+void VMM::update_MPU(uint16_t frame_to_enable)
+{
+    // If the MPU has already enabled access don't do anything
+    if(!mpu_enabled.get(frame_to_enable)) {
+        return;
+    }
+
+    // If the queue is full then there are no available MPU regions. We have to replace one of them.
+    uint16_t region_frame[2];
+    region_frame[0] = mpu_region_frame_fifo.element_count - 1;  // Starts at 1
+
+    if(queue_is_full(&mpu_region_frame_fifo)) {
+        queue_try_remove(&mpu_region_frame_fifo, region_frame);
+    }
+
+    // Replace the old region number's frame with the new frame
+    region_frame[1] = frame_to_enable;
+    queue_try_add(&mpu_region_frame_fifo, region_frame);
+    mpu_enabled.set(frame_to_enable);   // Update the bit array
+
+    // Enable access to the new frame
+    uint32_t base_addr = frame_to_enable * PAGE_SIZE;
+    set_addr(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -128,11 +152,14 @@ VMM::VMM() {
         frame_ages[i] = 0;
         frame_to_page[i] = 0xFFFFFFFF;
     }
+
+    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 8);  // There are 8 regions
 }
 
 
 void VMM::start() {
     if (vmmTaskHandle == NULL) {
+
         xTaskCreate(
             vmmTaskWrapper, // The static bridge
             "VMM_Task",
@@ -145,73 +172,67 @@ void VMM::start() {
     }
 }
 
-void VMM::notify_completion(MemoryRequest finished_req) {
+void VMM::notify_completion(MemoryRequest *finished_req) {
     xSemaphoreTake(vmmMutex, portMAX_DELAY);
 
     // Update state: Page is now officially resident
-    if (finished_req.op == MemoryOp::READ) {
-        is_resident.set(finished_req.v_page_id);
-        page_to_frame[finished_req.v_page_id] = finished_req.frame_index;
-        frame_to_page[finished_req.frame_index] = finished_req.v_page_id;
+    if (finished_req->op == MemoryOp::READ) {
+        is_resident.set(finished_req->v_page_id);
+        page_to_frame[finished_req->v_page_id] = finished_req->frame_index;
+        frame_to_page[finished_req->frame_index] = finished_req->v_page_id;
 
         // Move to MRU (front of list)
-        update_lru_access(finished_req.frame_index);
+        update_lru_access(finished_req->frame_index);
 
-        vTaskResume(finished_req.task);
+        vTaskResume(finished_req->task);
     }
-    else if (finished_req.op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
-        clear_page(finished_req.v_page_id, false);
+    else if (finished_req->op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
+        clear_page(finished_req->v_page_id, false);
+    } else if (finished_req->op == MemoryOp::ALLOC) {
+        // There should be space if it reaches this point
+        xTaskNotifyGive(finished_req->task);
     }
 
     xSemaphoreGive(vmmMutex);
 }
 
 
-uint8_t& VMM::access(uint32_t virtual_addr, bool is_write) {
+void VMM::access(uint32_t virtual_addr) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
-
     uint32_t page_id = relative_addr / PAGE_SIZE;
-    uint32_t offset = relative_addr % PAGE_SIZE;
 
-    uint8_t frame_idx;
+    int16_t frame_idx;
 
     xSemaphoreTake(vmmMutex, portMAX_DELAY);
-    // 1. Check if resident. If not, trigger swap-in logic
+    // Check if resident. If not, trigger swap-in logic
     if (!is_resident.get(page_id)) {
         // Suspend the task and send the write request
         MemoryRequest req = {
             MemoryOp::READ,
-            page_id,     // The virtual page being moved
-            0,    // The physical SRAM frame used
+            page_id,     // The virtual page being loaded in
+            0,    // No frame is being touched this time
             sram_frames[page_to_frame[page_id]],
             xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
+
         // Suspend the task. When it is woken up, the page will be in local memory
-        xSemaphoreGive(vmmMutex);
-        vTaskSuspend(NULL);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         // The memory request has been fulfilled.
         frame_idx = req.frame_index;
-        page_id = req.v_page_id;
-        uint8_t& data = *(req.sram_buffer);
-
-        return data;
     } else {
-        xSemaphoreTake(vmmMutex, portMAX_DELAY);
         frame_idx = page_to_frame[page_id];
-        update_lru_access(frame_idx);
-
-        if (is_write) {
-            is_dirty.set(page_id);
-        }
-
-        uint8_t& data = sram_frames[frame_idx][offset];
-        xSemaphoreGive(vmmMutex);
-
-        return data;
     }
+    update_lru_access(frame_idx);
+
+    // For now, I am assuming that all accessed data is dirty
+    is_dirty.set(page_id);
+    xSemaphoreGive(vmmMutex);
+
+    // Enable the frame access
+    update_MPU(frame_idx);
 }
 
 
@@ -224,11 +245,19 @@ uint8_t* VMM::get_physical_ptr(uint32_t virtual_addr) {
     return &sram_frames[frame_idx][offset];
 }
 
-uint8_t VMM::alloc()
+void *VMM::alloc(size_t mem_size)
 {
-    uint8_t frame_idx = get_available_frame();
+    TaskHandle_t cur_task = xTaskGetCurrentTaskHandle();
+    // Send the request.
+    MemoryRequest req = {
+        MemoryOp::ALLOC,
+        0,
+        0,
+        0,
+        cur_task
+    };
+    _external_memory->submit_request(req);
+    xTaskNotifyGive(cur_task);
 
-    // While the frame has been cleared, it still needs a memory address, which is provided by the controller
-    
-    return 0;
+    return (void*)(VIRTUAL_MEMORY_BASE + (req.v_page_id * PAGE_SIZE));  // The data will always be page aligned.
 }

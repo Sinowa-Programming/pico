@@ -515,6 +515,30 @@ modules/memory/internal_memory.cpp.s:
 	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/internal_memory.cpp.s
 .PHONY : modules/memory/internal_memory.cpp.s
 
+modules/memory/mpu_config.o: modules/memory/mpu_config.c.o
+.PHONY : modules/memory/mpu_config.o
+
+# target to build an object file
+modules/memory/mpu_config.c.o:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.o
+.PHONY : modules/memory/mpu_config.c.o
+
+modules/memory/mpu_config.i: modules/memory/mpu_config.c.i
+.PHONY : modules/memory/mpu_config.i
+
+# target to preprocess a source file
+modules/memory/mpu_config.c.i:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.i
+.PHONY : modules/memory/mpu_config.c.i
+
+modules/memory/mpu_config.s: modules/memory/mpu_config.c.s
+.PHONY : modules/memory/mpu_config.s
+
+# target to generate assembly for a file
+modules/memory/mpu_config.c.s:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.s
+.PHONY : modules/memory/mpu_config.c.s
+
 modules/pal/pal.o: modules/pal/pal.cpp.o
 .PHONY : modules/pal/pal.o
 
@@ -2548,6 +2572,9 @@ help:
 	@echo "... modules/memory/internal_memory.o"
 	@echo "... modules/memory/internal_memory.i"
 	@echo "... modules/memory/internal_memory.s"
+	@echo "... modules/memory/mpu_config.o"
+	@echo "... modules/memory/mpu_config.i"
+	@echo "... modules/memory/mpu_config.s"
 	@echo "... modules/pal/pal.o"
 	@echo "... modules/pal/pal.i"
 	@echo "... modules/pal/pal.s"

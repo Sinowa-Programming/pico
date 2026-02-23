@@ -57,7 +57,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             // Transfer Complete!
             data_receiving = false;
 
-            external_memory.notify_completion();
+            external_memory.notify_transfer_completion();
         }
         return;
     }
@@ -66,7 +66,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
     switch (command)
     {
-        case PAGE_TABLE_SET:
+        case PAGE_TABLE_WRITE:
             page_dest_ptr = vmm.sram_frames[buffer[2]];
             transfer_offset = 0;
             data_receiving = true;
@@ -76,18 +76,21 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
                 buffer_data_chunk(buffer + 2, bufsize - 2);
             }
             break;
-
-        case PAGE_TABLE_TRANSMISSION:
-            // Point to your actual VMM storage (e.g., a double buffer)
-            page_dest_ptr = external_memory.get_memory_request_sram_buffer();
-            transfer_offset = 0;
-            data_receiving = true;
-
-            // Handle payload included in THIS packet (after the 2 header bytes)
-            if (bufsize > 2) {
-                buffer_data_chunk(buffer + 2, bufsize - 2);
-            }
+        
+        case PAGE_TABLE_ALLOC:
+            external_memory.notify_allocation_completion(buffer[2] << 16 || buffer[3]);
             break;
+        // The page does not need to reach the memory of the device, currently, the device sends the requests
+        // case PAGE_TABLE_READ:
+        //     page_dest_ptr = external_memory.get_memory_request_sram_buffer();
+        //     transfer_offset = 0;
+        //     data_receiving = true;
+
+        //     // Handle payload included in THIS packet (after the 2 header bytes)
+        //     if (bufsize > 2) {
+        //         buffer_data_chunk(buffer + 2, bufsize - 2);
+        //     }
+        //     break;
 
         case HALT_CLIENT:
             vTaskSuspend(client_task_tcb);

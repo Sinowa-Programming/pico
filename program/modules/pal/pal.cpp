@@ -31,8 +31,8 @@ void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
     while (count > 0) {
         // 1. Force the pages into RAM via access() (just for the first byte of each page)
         // This triggers the page fault logic if necessary.
-        vmm.access(dest_v_addr, true);
-        vmm.access(src_v_addr, false);
+        vmm.access(dest_v_addr);
+        vmm.access(src_v_addr);
 
         uint32_t dest_page = dest_v_addr / PAGE_SIZE;
         uint32_t src_page = src_v_addr / PAGE_SIZE;
@@ -60,12 +60,13 @@ void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
 void *vcalloc(size_t num, size_t size)
 {
     size_t alloc_pages_needed = size / PAGE_SIZE;
+    uint8_t frame_idx;
+    
     for(size_t pages_alloced = 0; pages_alloced < alloc_pages_needed; ++pages_alloced){
-        // Get an available memory frame.
-        // uint8_t  = vmm.get_available_page();
+        frame_idx = vmm.alloc();
+        
+        
 
-        // calloc the page
-        // memset(vmm.get_physical_ptr(frame_num));
     
     }
     return nullptr;

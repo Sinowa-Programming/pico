@@ -5,18 +5,20 @@
 
 #define SYSTEM_CORE_AFFINITY (1U << 0)
 
-#define VIRTUAL_MEMORY_SIZE  (40 * 1024 * 1024)
+#define VIRTUAL_MEMORY_SIZE  (40 * 1024 * 1024) // 40MB
 #define PAGE_SIZE            (4096)
 #define NUM_PAGES            (VIRTUAL_MEMORY_SIZE / PAGE_SIZE)
 #define MAX_PHYSICAL_FRAMES  (64)
-#define BIT_ARRAY_SIZE       ((NUM_PAGES + 31) / 32)
 
 // Constant for the base address assigned in the linker script
 #define VIRTUAL_MEMORY_BASE 0x20082000
 
+/* ===== SET AT RUNTIME =====*/
+uint32_t VIRTUAL_CODE_MEMORY_END;   // The address that the code section ends at.
+/* ==========================*/
 
 // Internal defines
-// The amount of bits in the bit array that is resident in the device( They will change the most. )
+// The amount of bits in the bit array that is resident in the device( They will change the most. ) Uhh...I need to clean this up.
 const uint32_t MAX_RESIDENT_BITS = MAX_PHYSICAL_FRAMES / 32;
 
 typedef enum {
@@ -27,14 +29,18 @@ typedef enum {
 
 struct MemoryRequest {
     MemoryOp op;
-    uint32_t v_page_id;     // The virtual page being moved
+    uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc.
     uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten
     uint8_t* sram_buffer;   // Pointer to the page in memory
     TaskHandle_t task = nullptr;      // The task that owns the request
 };
 
+template <size_t N>
 class BitArray {
-    uint32_t storage[BIT_ARRAY_SIZE] = {0};
+    protected:
+        static constexpr size_t WordCount = (N + 31) / 32;
+        uint32_t storage[WordCount] = {0};
+
     public:
         inline void set(uint32_t i)   { storage[i >> 5] |= (1UL << (i & 31)); }
         inline void clear(uint32_t i) { storage[i >> 5] &= ~(1UL << (i & 31)); }
@@ -52,5 +58,8 @@ class BitArray {
             return -1;
         }
 };
+
+using PageBitArray  = BitArray<NUM_PAGES>;
+using FrameBitArray = BitArray<MAX_PHYSICAL_FRAMES>;
 
 #endif // MEMORY_H

@@ -59,16 +59,11 @@ class ExternalMemory {
     TaskHandle_t run_task;
 
     QueueHandle_t mem_requests;
-    spi_inst_t* spi_hw = spi0;
-    int dma_tx_chan;
-    int dma_rx_chan;
 
-    MemoryRequest active_req;
+    MemoryRequest *active_req;
 
     VMM *internal_memory;
 
-    void receive(uint8_t itf);
-    void transmit(uint8_t itf, uint32_t sent_bytes);
     void setup_dma();
 
     void run();
@@ -91,7 +86,11 @@ public:
 
     uint8_t* get_memory_request_sram_buffer();
 
-    void notify_completion();
+    // A page has been transfered
+    void notify_transfer_completion();
+
+    // The host has return an address for the data point
+    void notify_allocation_completion(uint32_t v_mem_addr);
 };
 #endif
 

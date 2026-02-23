@@ -34,8 +34,9 @@ enum {
     HALT_CLIENT = 0X2,
     RESUME_CLIENT = 0X3,
 
-    PAGE_TABLE_SET = 0xE,  // Write a page of data to a specific frame. For starting execution by writing to frame 0.
-    PAGE_TABLE_TRANSMISSION = 0xF   // The device has received a page.
+    PAGE_TABLE_ALLOC = 0xD,
+    PAGE_TABLE_READ = 0xE,  // swap -> local page
+    PAGE_TABLE_WRITE = 0xF   // local page -> swap
 };
 
 
