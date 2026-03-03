@@ -3,7 +3,6 @@
 
 #include "pico/stdlib.h"
 
-
 /// @brief Finds the base register of the given thumb2 instruction. It is only implemented for instructions that can cause a MPU fault.
 /// @param instruction The instruction to find the base register of.
 /// @return The base register idx. Ex: 0 = r0

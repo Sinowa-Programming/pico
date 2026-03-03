@@ -3,15 +3,16 @@
 
 #include "pico/stdlib.h"
 #include "hardware/structs/mpu.h"
-#include "core_cm33.h"
+#include "RP2350.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
 #include "memory.hpp"
 #include "internal_memory.h"
+#include "thumb2_instruction_decode.h"
 
-extern VMM vmm;
+extern class VMM vmm;
 
 void configure_rp2350_mpu();
 

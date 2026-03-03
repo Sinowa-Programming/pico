@@ -515,29 +515,53 @@ modules/memory/internal_memory.cpp.s:
 	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/internal_memory.cpp.s
 .PHONY : modules/memory/internal_memory.cpp.s
 
-modules/memory/mpu_config.o: modules/memory/mpu_config.c.o
+modules/memory/mpu_config.o: modules/memory/mpu_config.cpp.o
 .PHONY : modules/memory/mpu_config.o
 
 # target to build an object file
-modules/memory/mpu_config.c.o:
-	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.o
-.PHONY : modules/memory/mpu_config.c.o
+modules/memory/mpu_config.cpp.o:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.cpp.o
+.PHONY : modules/memory/mpu_config.cpp.o
 
-modules/memory/mpu_config.i: modules/memory/mpu_config.c.i
+modules/memory/mpu_config.i: modules/memory/mpu_config.cpp.i
 .PHONY : modules/memory/mpu_config.i
 
 # target to preprocess a source file
-modules/memory/mpu_config.c.i:
-	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.i
-.PHONY : modules/memory/mpu_config.c.i
+modules/memory/mpu_config.cpp.i:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.cpp.i
+.PHONY : modules/memory/mpu_config.cpp.i
 
-modules/memory/mpu_config.s: modules/memory/mpu_config.c.s
+modules/memory/mpu_config.s: modules/memory/mpu_config.cpp.s
 .PHONY : modules/memory/mpu_config.s
 
 # target to generate assembly for a file
-modules/memory/mpu_config.c.s:
-	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.c.s
-.PHONY : modules/memory/mpu_config.c.s
+modules/memory/mpu_config.cpp.s:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/mpu_config.cpp.s
+.PHONY : modules/memory/mpu_config.cpp.s
+
+modules/memory/thumb2_instruction_decode.o: modules/memory/thumb2_instruction_decode.cpp.o
+.PHONY : modules/memory/thumb2_instruction_decode.o
+
+# target to build an object file
+modules/memory/thumb2_instruction_decode.cpp.o:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/thumb2_instruction_decode.cpp.o
+.PHONY : modules/memory/thumb2_instruction_decode.cpp.o
+
+modules/memory/thumb2_instruction_decode.i: modules/memory/thumb2_instruction_decode.cpp.i
+.PHONY : modules/memory/thumb2_instruction_decode.i
+
+# target to preprocess a source file
+modules/memory/thumb2_instruction_decode.cpp.i:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/thumb2_instruction_decode.cpp.i
+.PHONY : modules/memory/thumb2_instruction_decode.cpp.i
+
+modules/memory/thumb2_instruction_decode.s: modules/memory/thumb2_instruction_decode.cpp.s
+.PHONY : modules/memory/thumb2_instruction_decode.s
+
+# target to generate assembly for a file
+modules/memory/thumb2_instruction_decode.cpp.s:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/memory/thumb2_instruction_decode.cpp.s
+.PHONY : modules/memory/thumb2_instruction_decode.cpp.s
 
 modules/pal/pal.o: modules/pal/pal.cpp.o
 .PHONY : modules/pal/pal.o
@@ -1282,6 +1306,30 @@ opt/pico-sdk/src/rp2350/pico_platform/platform.s: opt/pico-sdk/src/rp2350/pico_p
 opt/pico-sdk/src/rp2350/pico_platform/platform.c.s:
 	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/opt/pico-sdk/src/rp2350/pico_platform/platform.c.s
 .PHONY : opt/pico-sdk/src/rp2350/pico_platform/platform.c.s
+
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.o: opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.o
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.o
+
+# target to build an object file
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.o:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.o
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.o
+
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.i: opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.i
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.i
+
+# target to preprocess a source file
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.i:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.i
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.i
+
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.s: opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.s
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.s
+
+# target to generate assembly for a file
+opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.s:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.s
+.PHONY : opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.c.s
 
 opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.o: opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.c.o
 .PHONY : opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.o
@@ -2575,6 +2623,9 @@ help:
 	@echo "... modules/memory/mpu_config.o"
 	@echo "... modules/memory/mpu_config.i"
 	@echo "... modules/memory/mpu_config.s"
+	@echo "... modules/memory/thumb2_instruction_decode.o"
+	@echo "... modules/memory/thumb2_instruction_decode.i"
+	@echo "... modules/memory/thumb2_instruction_decode.s"
 	@echo "... modules/pal/pal.o"
 	@echo "... modules/pal/pal.i"
 	@echo "... modules/pal/pal.s"
@@ -2668,6 +2719,9 @@ help:
 	@echo "... opt/pico-sdk/src/rp2350/pico_platform/platform.o"
 	@echo "... opt/pico-sdk/src/rp2350/pico_platform/platform.i"
 	@echo "... opt/pico-sdk/src/rp2350/pico_platform/platform.s"
+	@echo "... opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.o"
+	@echo "... opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.i"
+	@echo "... opt/pico-sdk/src/rp2_common/cmsis/stub/CMSIS/Device/RP2350/Source/system_RP2350.s"
 	@echo "... opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.o"
 	@echo "... opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.i"
 	@echo "... opt/pico-sdk/src/rp2_common/hardware_boot_lock/boot_lock.s"

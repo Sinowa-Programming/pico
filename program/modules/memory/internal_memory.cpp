@@ -236,13 +236,13 @@ void VMM::access(uint32_t virtual_addr) {
 }
 
 
-uint8_t* VMM::get_physical_ptr(uint32_t virtual_addr) {
+uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
     uint32_t page_id = virtual_addr / PAGE_SIZE;
     uint32_t offset = virtual_addr % PAGE_SIZE;
 
     // Assumes page is already resident (call access() first to ensure it)
     int16_t frame_idx = page_to_frame[page_id];
-    return &sram_frames[frame_idx][offset];
+    return sram_frames[frame_idx][offset];
 }
 
 void *VMM::alloc(size_t mem_size)

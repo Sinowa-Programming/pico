@@ -14,7 +14,7 @@
 #define VIRTUAL_MEMORY_BASE 0x20082000
 
 /* ===== SET AT RUNTIME =====*/
-uint32_t VIRTUAL_CODE_MEMORY_END;   // The address that the code section ends at.
+extern uint32_t VIRTUAL_CODE_MEMORY_END;   // The address that the code section ends at.
 /* ==========================*/
 
 // Internal defines
@@ -32,7 +32,7 @@ struct MemoryRequest {
     uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc.
     uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten
     uint8_t* sram_buffer;   // Pointer to the page in memory
-    TaskHandle_t task = nullptr;      // The task that owns the request
+    TaskHandle_t task;      // The task that owns the request
 };
 
 template <size_t N>

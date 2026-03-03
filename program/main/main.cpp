@@ -4,12 +4,14 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "pal.h"
 
+#include "pal.h"
 #include "usb_comm.h"
+#include "memory.hpp"
 
 ExternalMemory external_memory;
 VMM vmm;
+uint32_t VIRTUAL_CODE_MEMORY_END = 0xFFFFFFFF;
 
 int main()
 {

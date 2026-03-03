@@ -6,8 +6,9 @@
 
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
-#include "mpu_config.h"
+// #include "mpu_config.h"
 
+extern void set_addr(uint8_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 class ExternalMemory;
 
 class VMM {
@@ -68,7 +69,7 @@ public:
     /// @return The frame idx that contains the data.
     void access(uint32_t virtual_addr);
 
-    uint8_t* VMM::get_physical_ptr(uint32_t virtual_addr);
+    uintptr_t get_physical_ptr(uint32_t virtual_addr);
 
     /* memory allocation functions */
 

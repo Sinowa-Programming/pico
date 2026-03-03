@@ -19,8 +19,8 @@ pico_set_binary_type(${PROJECT_NAME} no_flash)
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/..
     ${CMAKE_CURRENT_LIST_DIR}/modules/pal
-    ${CMAKE_CURRENT_LIST_DIR}/modules/memory
     ${CMAKE_CURRENT_LIST_DIR}/modules/communication
+    ${CMAKE_CURRENT_LIST_DIR}/modules/memory
     ${CMAKE_CURRENT_LIST_DIR}/main
     ${CMAKE_CURRENT_LIST_DIR}   # For tusb_config.h
 )
@@ -42,6 +42,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
     hardware_spi
     hardware_dma
+
+    # cmsis headers
+    cmsis_core
 )
 
 pico_add_extra_outputs(${PROJECT_NAME})

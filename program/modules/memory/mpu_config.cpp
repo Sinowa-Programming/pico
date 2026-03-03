@@ -17,7 +17,7 @@ void set_addr(uint8_t region_number, uint32_t base_address, uint32_t limit_addre
         rlar = ARM_MPU_RLAR(limit_address, 1);
     }
 
-    taskEnter_CRITICAL();
+    taskENTER_CRITICAL();
     if (access) {
         ARM_MPU_SetRegion(region_number, rbar, rlar);
     } else {
@@ -28,7 +28,7 @@ void set_addr(uint8_t region_number, uint32_t base_address, uint32_t limit_addre
     __DSB();
     __ISB();
 
-    taskExit_CRITICAL();
+    taskEXIT_CRITICAL();
 }
 
 // Tell the compiler not to generate standard prologue/epilogue
@@ -76,7 +76,7 @@ __attribute__((naked)) void MemManage_Handler(void) {
 }
 
 // Helper to get a pointer from any frame register
-inline static uintptr_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
+inline static uint32_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
     switch (reg_index) {
         case 0: return &frame->r0;
         case 1: return &frame->r1;
@@ -105,7 +105,7 @@ void MemManage_Handler_C(StackFrame *frame) {
     if (SCB->CFSR & SCB_CFSR_MMARVALID_Msk) {
         uint32_t fault_address = SCB->MMFAR;
         vmm.access(fault_address);   // Make sure the page is resident( load it if not. )
-        uintptr_t *physical_addr = vmm.get_physical_ptr(fault_address);   // Get the address of the frame
+        uintptr_t physical_addr = vmm.get_physical_ptr(fault_address);   // Get the address of the frame
 
         // Update the offending register/sram location with the new address
 
@@ -123,7 +123,7 @@ void MemManage_Handler_C(StackFrame *frame) {
         SCB->CFSR |= SCB_CFSR_MMARVALID_Msk;
     } else {
         while(1) {
-            sleep(1000);
+            sleep_ms(1000);
             printf("Memory fault! Unknown Address. Time to spinlock!\n");
         }
     }
