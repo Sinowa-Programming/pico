@@ -16,7 +16,8 @@ extern class VMM vmm;
 
 void configure_rp2350_mpu();
 
-void set_addr(uint8_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
+inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
+inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 
 // The stack frame that a fault handler is given
 typedef struct {

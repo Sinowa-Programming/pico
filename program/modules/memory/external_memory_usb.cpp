@@ -35,9 +35,10 @@ void ExternalMemory::run() {
                 CommunicationHeader header = {
                     MCU_ID,
                     PAGE_TABLE_ALLOC,
-                    0,              // Just telling the page system to give me a page number
+                    sizeof(size_t),    // Tell the swap system the size of the block we are requesting
                 };
                 send_chunked((uint8_t*)&header, sizeof(header));
+                send_chunked((uint8_t*)&(active_req->frame_index), sizeof(size_t));
             }
 
 

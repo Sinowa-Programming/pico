@@ -30,10 +30,7 @@
 #include <getopt.h>
 #include <stdbool.h>
 
-// #include <SDL.h>
-
 #include "dav1d/dav1d.h"
-
 #include "common/attributes.h"
 #include "tools/input/input.h"
 #include "dp_fifo.h"
@@ -44,8 +41,8 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-
-#include "pal.h"
+#include "pthread.h"
+#include "types.h"
 
 #define FRAME_OFFSET_TO_PTS(foff) \
     (uint64_t)(((foff) * rd_ctx->spf) * 1000000000.0 + .5)
@@ -70,7 +67,7 @@ typedef struct render_context
     void *rd_priv;
 
     // Lock to protect access to the context structure
-    SDL_mutex *lock;
+    pthread_mutex_t *lock;
 
     // Timestamp of last displayed frame (in timebase unit)
     int64_t last_ts;
@@ -229,11 +226,14 @@ static void dp_rd_ctx_parse_args(Dav1dPlayRenderContext *rd_ctx,
  */
 static void dp_rd_ctx_destroy(Dav1dPlayRenderContext *rd_ctx)
 {
-    assert(rd_ctx != NULL);
-
-    renderer_info->destroy_renderer(rd_ctx->rd_priv);
-    dp_fifo_destroy(rd_ctx->fifo);
-    SDL_DestroyMutex(rd_ctx->lock);
+    if (!rd_ctx) return;
+    if (renderer_info && renderer_info->destroy_renderer)
+        renderer_info->destroy_renderer(rd_ctx->rd_priv);
+    if (rd_ctx->fifo) dp_fifo_destroy(rd_ctx->fifo);
+    if (rd_ctx->lock) {
+        pthread_mutex_destroy(rd_ctx->lock);
+        free(rd_ctx->lock);
+    }
     free(rd_ctx);
 }
 
@@ -248,7 +248,7 @@ static Dav1dPlayRenderContext *dp_rd_ctx_create(int argc, char **argv)
     Dav1dPlayRenderContext *rd_ctx;
 
     // Alloc
-    rd_ctx = vcalloc(1, sizeof(Dav1dPlayRenderContext));
+    rd_ctx = calloc(1, sizeof(Dav1dPlayRenderContext));
     if (rd_ctx == NULL) {
         return NULL;
     }
@@ -258,19 +258,6 @@ static Dav1dPlayRenderContext *dp_rd_ctx_create(int argc, char **argv)
     memset(&rd_ctx->settings, 0, sizeof(rd_ctx->settings));
     dp_rd_ctx_parse_args(rd_ctx, argc, argv);
 
-    // Init SDL2 library
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0) {
-        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
-        goto fail;
-    }
-
-    // Register a custom event to notify our SDL main thread
-    // about new frames
-    rd_ctx->event_types = SDL_RegisterEvents(3);
-    if (rd_ctx->event_types == UINT32_MAX) {
-        fprintf(stderr, "Failure to create custom SDL event types!\n");
-        goto fail;
-    }
 
     rd_ctx->fifo = dp_fifo_create(5);
     if (rd_ctx->fifo == NULL) {
@@ -278,9 +265,8 @@ static Dav1dPlayRenderContext *dp_rd_ctx_create(int argc, char **argv)
         goto fail;
     }
 
-    rd_ctx->lock = SDL_CreateMutex();
-    if (rd_ctx->lock == NULL) {
-        fprintf(stderr, "SDL_CreateMutex failed: %s\n", SDL_GetError());
+    rd_ctx->lock = malloc(sizeof(pthread_mutex_t));
+    if (!rd_ctx->lock || pthread_mutex_init(rd_ctx->lock, NULL) != 0) {
         goto fail;
     }
 
@@ -302,25 +288,10 @@ static Dav1dPlayRenderContext *dp_rd_ctx_create(int argc, char **argv)
     return rd_ctx;
 
 fail:
-    if (rd_ctx->lock)
-        SDL_DestroyMutex(rd_ctx->lock);
-    if (rd_ctx->fifo)
-        dp_fifo_destroy(rd_ctx->fifo);
-    free(rd_ctx);
-    SDL_Quit();
+    dp_rd_ctx_destroy(rd_ctx);
     return NULL;
 }
 
-/**
- * Notify about new event
- */
-static void dp_rd_ctx_post_event(Dav1dPlayRenderContext *rd_ctx, uint32_t type)
-{
-    SDL_Event event;
-    SDL_zero(event);
-    event.type = type;
-    SDL_PushEvent(&event);
-}
 
 /**
  * Update the decoder context with a new dav1d picture
@@ -336,27 +307,6 @@ static void dp_rd_ctx_update_with_dav1d_picture(Dav1dPlayRenderContext *rd_ctx,
     renderer_info->update_frame(rd_ctx->rd_priv, dav1d_pic, &rd_ctx->settings);
 }
 
-/**
- * Toggle pause state
- */
-static void dp_rd_ctx_toggle_pause(Dav1dPlayRenderContext *rd_ctx)
-{
-    SDL_LockMutex(rd_ctx->lock);
-    rd_ctx->user_paused = !rd_ctx->user_paused;
-    if (rd_ctx->seek)
-        goto out;
-    rd_ctx->paused = rd_ctx->user_paused;
-    uint32_t now = SDL_GetTicks();
-    if (rd_ctx->paused)
-        rd_ctx->pause_start = now;
-    else {
-        rd_ctx->pause_time += now - rd_ctx->pause_start;
-        rd_ctx->pause_start = 0;
-        rd_ctx->last_ticks = now;
-    }
-out:
-    SDL_UnlockMutex(rd_ctx->lock);
-}
 
 /**
  * Query pause state
@@ -364,126 +314,17 @@ out:
 static int dp_rd_ctx_is_paused(Dav1dPlayRenderContext *rd_ctx)
 {
     int ret;
-    SDL_LockMutex(rd_ctx->lock);
-    ret = rd_ctx->paused;
-    SDL_UnlockMutex(rd_ctx->lock);
+    pthread_mutex_lock(rd_ctx->lock);
+    ret = rd_ctx->dec_should_terminate;
+    pthread_mutex_unlock(rd_ctx->lock);
     return ret;
 }
 
-/**
- * Request seeking, in seconds
- */
-static void dp_rd_ctx_seek(Dav1dPlayRenderContext *rd_ctx, int sec)
-{
-    SDL_LockMutex(rd_ctx->lock);
-    rd_ctx->seek += sec;
-    if (!rd_ctx->paused)
-        rd_ctx->pause_start = SDL_GetTicks();
-    rd_ctx->paused = 1;
-    SDL_UnlockMutex(rd_ctx->lock);
-}
 
 static int decode_frame(Dav1dPicture **p, Dav1dContext *c,
                         Dav1dData *data, DemuxerContext *in_ctx);
 static inline void destroy_pic(void *a);
 
-/**
- * Seek the stream, if requested
- */
-static int dp_rd_ctx_handle_seek(Dav1dPlayRenderContext *rd_ctx,
-                                 DemuxerContext *in_ctx,
-                                 Dav1dContext *c, Dav1dData *data)
-{
-    int res = 0;
-    SDL_LockMutex(rd_ctx->lock);
-    if (!rd_ctx->seek)
-        goto out;
-    int64_t seek = rd_ctx->seek * 1000000000ULL;
-    uint64_t pts = TS_TO_PTS(rd_ctx->current_ts);
-    pts = ((int64_t)pts > -seek) ? pts + seek : 0;
-    int end = pts >= FRAME_OFFSET_TO_PTS(rd_ctx->total);
-    if (end)
-        pts = FRAME_OFFSET_TO_PTS(rd_ctx->total - 1);
-    uint64_t target_pts = pts;
-    dav1d_flush(c);
-    uint64_t shift = FRAME_OFFSET_TO_PTS(5);
-    while (1) {
-        if (shift > pts)
-            shift = pts;
-        if ((res = input_seek(in_ctx, pts - shift)))
-            goto out;
-        Dav1dSequenceHeader seq;
-        uint64_t cur_pts;
-        do {
-            if ((res = input_read(in_ctx, data)))
-                break;
-            cur_pts = TS_TO_PTS(data->m.timestamp);
-            res = dav1d_parse_sequence_header(&seq, data->data, data->sz);
-        } while (res && cur_pts < pts);
-        if (!res && cur_pts <= pts)
-            break;
-        if (shift > pts)
-            shift = pts;
-        pts -= shift;
-    }
-    if (!res) {
-        pts = TS_TO_PTS(data->m.timestamp);
-        while (pts < target_pts) {
-            Dav1dPicture *p;
-            if ((res = decode_frame(&p, c, data, in_ctx)))
-                break;
-            if (p) {
-                pts = TS_TO_PTS(p->m.timestamp);
-                if (pts < target_pts)
-                    destroy_pic(p);
-                else {
-                    dp_fifo_push(rd_ctx->fifo, p);
-                    uint32_t type = rd_ctx->event_types + DAV1D_EVENT_SEEK_FRAME;
-                    dp_rd_ctx_post_event(rd_ctx, type);
-                }
-            }
-        }
-        if (!res) {
-            rd_ctx->last_ts = data->m.timestamp - rd_ctx->spf / rd_ctx->timebase;
-            rd_ctx->current_ts = data->m.timestamp;
-        }
-    }
-out:
-    rd_ctx->paused = rd_ctx->user_paused;
-    if (!rd_ctx->paused && rd_ctx->seek) {
-        uint32_t now = SDL_GetTicks();
-        rd_ctx->pause_time += now - rd_ctx->pause_start;
-        rd_ctx->pause_start = 0;
-        rd_ctx->last_ticks = now;
-    }
-    rd_ctx->seek = 0;
-    SDL_UnlockMutex(rd_ctx->lock);
-    if (res)
-        fprintf(stderr, "Error seeking, aborting\n");
-    return res;
-}
-
-/**
- * Terminate decoder thread (async)
- */
-static void dp_rd_ctx_request_shutdown(Dav1dPlayRenderContext *rd_ctx)
-{
-    SDL_LockMutex(rd_ctx->lock);
-    rd_ctx->dec_should_terminate = 1;
-    SDL_UnlockMutex(rd_ctx->lock);
-}
-
-/**
- * Query state of decoder shutdown request
- */
-static int dp_rd_ctx_should_terminate(Dav1dPlayRenderContext *rd_ctx)
-{
-    int ret = 0;
-    SDL_LockMutex(rd_ctx->lock);
-    ret = rd_ctx->dec_should_terminate;
-    SDL_UnlockMutex(rd_ctx->lock);
-    return ret;
-}
 
 /**
  * Render the currently available texture
@@ -492,9 +333,9 @@ static int dp_rd_ctx_should_terminate(Dav1dPlayRenderContext *rd_ctx)
  */
 static void dp_rd_ctx_render(Dav1dPlayRenderContext *rd_ctx)
 {
-    SDL_LockMutex(rd_ctx->lock);
+    pthread_mutex_lock(rd_ctx->lock);
     // Calculate time since last frame was received
-    uint32_t ticks_now = SDL_GetTicks();
+    uint32_t ticks_now = get_ticks_ms();
     uint32_t ticks_diff = (rd_ctx->last_ticks != 0) ? ticks_now - rd_ctx->last_ticks : 0;
 
     // Calculate when to display the frame
@@ -510,17 +351,17 @@ static void dp_rd_ctx_render(Dav1dPlayRenderContext *rd_ctx)
     // that SDL_Delay will wait for exactly the requested amount of time so in a
     // accurate player this would need to be done in a better way.
     if (wait_time > 0) {
-        SDL_Delay(wait_time);
-    } else if (wait_time < -10 && !rd_ctx->paused) { // Do not warn for minor time drifts
+        vTaskDelay(pdMS_TO_TICKS(wait_time));
+    } else if (wait_time < -10 && !rd_ctx->paused) {
         fprintf(stderr, "Frame displayed %f seconds too late\n", wait_time / 1000.0);
     }
 
     renderer_info->render(rd_ctx->rd_priv, &rd_ctx->settings);
 
     rd_ctx->last_ts = rd_ctx->current_ts;
-    rd_ctx->last_ticks = SDL_GetTicks();
+    rd_ctx->last_ticks = get_ticks_ms();
 
-    SDL_UnlockMutex(rd_ctx->lock);
+    pthread_mutex_unlock(rd_ctx->lock);
 }
 
 static int decode_frame(Dav1dPicture **p, Dav1dContext *c,
@@ -615,13 +456,11 @@ static int decoder_thread_main(void *cookie)
         }
         else if (p) {
             // Queue frame
-            SDL_LockMutex(rd_ctx->lock);
+            pthread_mutex_lock(rd_ctx->lock);
             int seek = rd_ctx->seek;
-            SDL_UnlockMutex(rd_ctx->lock);
+            pthread_mutex_unlock(rd_ctx->lock);
             if (!seek) {
                 dp_fifo_push(rd_ctx->fifo, p);
-                uint32_t type = rd_ctx->event_types + DAV1D_EVENT_NEW_FRAME;
-                dp_rd_ctx_post_event(rd_ctx, type);
             }
         }
     }
@@ -661,7 +500,8 @@ static int decoder_thread_main(void *cookie)
     } while (res != DAV1D_ERR(EAGAIN));
 
 cleanup:
-    dp_rd_ctx_post_event(rd_ctx, rd_ctx->event_types + DAV1D_EVENT_DEC_QUIT);
+    // Signal main thread that decoding is complete
+    dp_fifo_push(rd_ctx->fifo, NULL);
 
     if (in_ctx)
         input_close(in_ctx);
@@ -675,16 +515,7 @@ int main(int argc, char **argv)
 {
     stdio_init_all();
 
-    // SDL_Thread *decoder_thread;
     TaskHandle_t *decoder_thread;
-
-    // Check for version mismatch between library and tool
-    // const char *version = dav1d_version();
-    // if (strcmp(version, DAV1D_VERSION)) {
-    //     fprintf(stderr, "Version mismatch (library: %s, executable: %s)\n",
-    //             version, DAV1D_VERSION);
-    //     return 1;
-    // }
 
     // Create render context
     Dav1dPlayRenderContext *rd_ctx = dp_rd_ctx_create(argc, argv);
@@ -714,105 +545,42 @@ int main(int argc, char **argv)
     }
 
     // Start decoder thread
-    // decoder_thread = SDL_CreateThread(decoder_thread_main, "Decoder thread", rd_ctx);
-    xTaskCreate(
-        decoder_thread_main,
-        "Decoder thread",
-        12500,   // 50KB = 50000 byes / 4 = 12500 words
-        rd_ctx,
-        configMAX_PRIORITIES - 2,
-        decoder_thread
-    );
-
-    // Main loop - Data will just be sent to a file. No events.
-// #define NUM_MAX_EVENTS 8
-    // SDL_Event events[NUM_MAX_EVENTS];
-    int num_frame_events = 0;
-    uint32_t start_time = 0, n_out = 0;
-    while (1) {
-        int num_events = 0;
-        // SDL_WaitEvent(NULL);
-        // while (num_events < NUM_MAX_EVENTS && SDL_PollEvent(&events[num_events++]))
-        //     break;
-        for (int i = 0; i < num_events; ++i) {
-            SDL_Event *e = &events[i];
-            // if (e->type == SDL_QUIT) {
-
-            //NOTE: This could be useful
-                // dp_rd_ctx_request_shutdown(rd_ctx);
-                // dp_fifo_flush(rd_ctx->fifo, destroy_pic);
-                // goto out;
-            
-                // } else if (e->type == SDL_WINDOWEVENT) {
-            //     if (e->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-            //         // TODO: Handle window resizes
-            //     } else if(e->window.event == SDL_WINDOWEVENT_EXPOSED) {
-            //         dp_rd_ctx_render(rd_ctx);
-            //     }
-            // } else if (e->type == SDL_KEYDOWN) {
-            //     SDL_KeyboardEvent *kbde = (SDL_KeyboardEvent *)e;
-            //     if (kbde->keysym.sym == SDLK_SPACE) {
-            //         dp_rd_ctx_toggle_pause(rd_ctx);
-            //     } else if (kbde->keysym.sym == SDLK_ESCAPE) {
-            //         dp_rd_ctx_request_shutdown(rd_ctx);
-            //         dp_fifo_flush(rd_ctx->fifo, destroy_pic);
-            //         goto out;
-            //     } else if (kbde->keysym.sym == SDLK_LEFT ||
-            //                kbde->keysym.sym == SDLK_RIGHT)
-                // {
-                //     if (kbde->keysym.sym == SDLK_LEFT)
-                //         dp_rd_ctx_seek(rd_ctx, -5);
-                //     else if (kbde->keysym.sym == SDLK_RIGHT)
-                //         dp_rd_ctx_seek(rd_ctx, +5);
-                //     dp_fifo_flush(rd_ctx->fifo, destroy_pic);
-                //     SDL_FlushEvent(rd_ctx->event_types + DAV1D_EVENT_NEW_FRAME);
-                //     num_frame_events = 0;
-                // }
-            //} else
-            if (e->type == rd_ctx->event_types + DAV1D_EVENT_NEW_FRAME) {
-                num_frame_events++;
-                // Store current ticks for stats calculation
-                if (start_time == 0)
-                    start_time = to_ms_since_boot(get_absolute_time());
-                    // start_time = SDL_GetTicks();
-            }
-            // } else if (e->type == rd_ctx->event_types + DAV1D_EVENT_SEEK_FRAME) {
-            //     // Dequeue frame and update the render context with it
-            //     Dav1dPicture *p = dp_fifo_shift(rd_ctx->fifo);
-            //     // Do not update textures during termination
-            //     if (!dp_rd_ctx_should_terminate(rd_ctx)) {
-            //         dp_rd_ctx_update_with_dav1d_picture(rd_ctx, p);
-            //         n_out++;
-            //     }
-            //     destroy_pic(p);
-            // } else if (e->type == rd_ctx->event_types + DAV1D_EVENT_DEC_QUIT) {
-                // goto out;
-            // }
-        }
-        // if (num_frame_events && !dp_rd_ctx_is_paused(rd_ctx)) {
-        //     // Dequeue frame and update the render context with it
-        //     Dav1dPicture *p = dp_fifo_shift(rd_ctx->fifo);
-        //     // Do not update textures during termination
-        //     if (!dp_rd_ctx_should_terminate(rd_ctx)) {
-        //         dp_rd_ctx_update_with_dav1d_picture(rd_ctx, p);
-        //         dp_rd_ctx_render(rd_ctx);
-        //         n_out++;
-        //     }
-        //     destroy_pic(p);
-        //     num_frame_events--;
-        // }
+    if (pthread_create(&decoder_thread, NULL, decoder_thread_main, rd_ctx) != 0) {
+        fprintf(stderr, "Failed to create decoder thread\n");
+        return 6;
     }
 
-out:;
+
+    // Main loop - Data will just be sent to a file. No events.
+    uint32_t start_time = 0, n_out = 0;
+    while (1) {
+        Dav1dPicture *p = dp_fifo_shift(rd_ctx->fifo);
+
+        // Null pointer sent from decoder thread means stream is done
+        if (p == NULL) {
+            break;
+        }
+
+        if (start_time == 0) {
+            start_time = get_ticks_ms();
+        }
+
+        if (!dp_rd_ctx_should_terminate(rd_ctx)) {
+            dp_rd_ctx_update_with_dav1d_picture(rd_ctx, p);
+            dp_rd_ctx_render(rd_ctx);
+            n_out++;
+        }
+        destroy_pic(p);
+    }
+
     // Print stats
-    uint32_t time_ms = to_ms_since_boot(get_absolute_time()) - start_time - rd_ctx->pause_time;
+    uint32_t time_ms = get_ticks_ms() - start_time - rd_ctx->pause_time;
     printf("Decoded %u frames in %d seconds, avg %.02f fps\n",
            n_out, time_ms / 1000, n_out/ (time_ms / 1000.0));
 
     int decoder_ret = 0;
-    vTaskDelete(decoder_thread);
-    // SDL_WaitThread(decoder_thread, &decoder_ret);
+    pthread_join(decoder_thread, &decoder_ret);
+
     dp_rd_ctx_destroy(rd_ctx);
-    // SDL_Quit();
     return decoder_ret;
 }

@@ -4,7 +4,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "hardware/sync.h"
-
+#include "RP2350.h"
 
 #define CLIENT_CORE_AFFINITY  (1U << 1) // Core 1
 #define CLIENT_PRIORITY         (configMAX_PRIORITIES - 1) // High priority recommended

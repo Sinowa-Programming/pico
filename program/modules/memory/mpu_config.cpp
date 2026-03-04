@@ -6,13 +6,22 @@ void configure_rp2350_mpu()
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
 }
 
+inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
+{
+    set_addr(region_number, base_address, limit_address, access, true);
+}
 
-void set_addr(uint8_t region_number, uint32_t base_address, uint32_t limit_address, bool access) {
+inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
+{
+    set_addr(region_number, base_address, limit_address, access, false);
+}
+
+void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access, bool execute) {
     uint32_t rbar = 0;
     uint32_t rlar = 0;
     if(access) {
         // RO=0 (Read/Write), NP=1 (Unprivileged allowed), XN=1 (No execution)
-        rbar = ARM_MPU_RBAR(base_address, ARM_MPU_SH_NON, ARM_MPU_AP_RW, ARM_MPU_AP_NP, ARM_MPU_EX);
+        rbar = ARM_MPU_RBAR(base_address, ARM_MPU_SH_NON, ARM_MPU_AP_RW, ARM_MPU_AP_NP, (execute) ? ARM_MPU_EX : ARM_MPU_XN);
         // MAIR Index 1 (Assuming Device Memory / Peripherals)
         rlar = ARM_MPU_RLAR(limit_address, 1);
     }
@@ -101,26 +110,52 @@ inline static uint32_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
 // This name is a standard CMSIS defined exception handler.
 // The linker automatically maps it to the vector table.
 void MemManage_Handler_C(StackFrame *frame) {
+    // 1. Check for Instruction Fetch Fault (PC ticked over the frame boundary)
+    if (SCB->CFSR & SCB_CFSR_IACCVIOL_Msk) {
+        uintptr_t faulted_physical_pc = frame->pc;
+
+        // Find the frame that the CPU thought it was entering
+        uint32_t previous_frame_idx = (faulted_physical_pc - (uintptr_t)vmm.sram_frames) / PAGE_SIZE - 1;
+        uint32_t previous_virtual_page = vmm.get_vaddr_from_frame(previous_frame_idx);
+
+        // Calculate the NEW virtual address the PC wants to execute
+        uint32_t new_virtual_addr = previous_virtual_page + PAGE_SIZE;
+
+        // Load the page
+        vmm.access(new_virtual_addr, false);
+        uintptr_t new_physical_addr = vmm.get_physical_ptr(new_virtual_addr);
+
+        // Enable execution + access of the at the new address
+        set_addr_exec(0, new_physical_addr, new_physical_addr + PAGE_SIZE, true);
+
+        // Update the stacked PC so when the exception returns, it branches
+        // to the top of the correct physical frame.
+        frame->pc = new_physical_addr | (faulted_physical_pc & 0x01);
+
+        // Clear the exceotion bit
+        SCB->CFSR |= SCB_CFSR_IACCVIOL_Msk;
+        return;
+    }
+
     // Check if the MMFAR (Fault Address Register) is valid
     if (SCB->CFSR & SCB_CFSR_MMARVALID_Msk) {
         uint32_t fault_address = SCB->MMFAR;
-        vmm.access(fault_address);   // Make sure the page is resident( load it if not. )
-        uintptr_t physical_addr = vmm.get_physical_ptr(fault_address);   // Get the address of the frame
 
-        // Update the offending register/sram location with the new address
-
-        // 1. You must decode the instruction at frame->pc to find the base register index.
-        // Let's assume your decoder returns the register index (0-15) that caused the fault.
+        // Get the register holding the faulty address
         uint8_t faulting_reg_index = decode_instruction_base_register(frame->pc);
 
-        // 2. Update the offending register with the new physical address
+        // Get the register pointer
         uint32_t *target_reg = get_reg_ptr(frame, faulting_reg_index);
+
         if (target_reg != NULL) {
+            vmm.access(fault_address);   // Make sure the page is resident( load it if not. )
+            uintptr_t physical_addr = vmm.get_physical_ptr(fault_address);   // Get the address of the frame
             *target_reg = physical_addr;
         }
 
         // Clear the MMFAR valid bit so it doesn't immediantly refire
         SCB->CFSR |= SCB_CFSR_MMARVALID_Msk;
+        return;
     } else {
         while(1) {
             sleep_ms(1000);

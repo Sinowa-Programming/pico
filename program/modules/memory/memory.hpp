@@ -13,10 +13,6 @@
 // Constant for the base address assigned in the linker script
 #define VIRTUAL_MEMORY_BASE 0x20082000
 
-/* ===== SET AT RUNTIME =====*/
-extern uint32_t VIRTUAL_CODE_MEMORY_END;   // The address that the code section ends at.
-/* ==========================*/
-
 // Internal defines
 // The amount of bits in the bit array that is resident in the device( They will change the most. ) Uhh...I need to clean this up.
 const uint32_t MAX_RESIDENT_BITS = MAX_PHYSICAL_FRAMES / 32;
@@ -30,7 +26,7 @@ typedef enum {
 struct MemoryRequest {
     MemoryOp op;
     uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc.
-    uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten
+    uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten. If it is Alloc, it is used as the memory request size
     uint8_t* sram_buffer;   // Pointer to the page in memory
     TaskHandle_t task;      // The task that owns the request
 };

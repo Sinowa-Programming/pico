@@ -51,19 +51,21 @@ uint8_t VMM::get_available_frame() {
     return frame;
 }
 
-void VMM::update_MPU(uint16_t frame_to_enable)
+void VMM::update_mpu_access(uint16_t frame_to_enable)
 {
-    // If the MPU has already enabled access don't do anything
+    // If the MPU has already enabled access don't do anything. This shouldn't get hit.
     if(!mpu_enabled.get(frame_to_enable)) {
         return;
     }
 
     // If the queue is full then there are no available MPU regions. We have to replace one of them.
     uint16_t region_frame[2];
-    region_frame[0] = mpu_region_frame_fifo.element_count - 1;  // Starts at 1
 
     if(queue_is_full(&mpu_region_frame_fifo)) {
         queue_try_remove(&mpu_region_frame_fifo, region_frame);
+    } else {
+        // Add a new region to the list
+        region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
     }
 
     // Replace the old region number's frame with the new frame
@@ -73,7 +75,7 @@ void VMM::update_MPU(uint16_t frame_to_enable)
 
     // Enable access to the new frame
     uint32_t base_addr = frame_to_enable * PAGE_SIZE;
-    set_addr(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
+    set_addr_nexec(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -153,7 +155,7 @@ VMM::VMM() {
         frame_to_page[i] = 0xFFFFFFFF;
     }
 
-    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 8);  // There are 8 regions
+    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 7);  // There are 8 regions, but 1 region is being used by the active program. The rest are being accessed.
 }
 
 
@@ -197,7 +199,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 }
 
 
-void VMM::access(uint32_t virtual_addr) {
+void VMM::access(uint32_t virtual_addr, bool update_mpu = true) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
     uint32_t page_id = relative_addr / PAGE_SIZE;
@@ -232,7 +234,9 @@ void VMM::access(uint32_t virtual_addr) {
     xSemaphoreGive(vmmMutex);
 
     // Enable the frame access
-    update_MPU(frame_idx);
+    if(update_mpu) {
+        update_mpu_access(frame_idx);
+    }
 }
 
 
@@ -245,6 +249,11 @@ uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
     return sram_frames[frame_idx][offset];
 }
 
+inline uintptr_t VMM::get_vaddr_from_frame(uint32_t frame_id)
+{
+    return frame_to_page[frame_id] * PAGE_SIZE + VIRTUAL_MEMORY_BASE;
+}
+
 void *VMM::alloc(size_t mem_size)
 {
     TaskHandle_t cur_task = xTaskGetCurrentTaskHandle();
@@ -252,7 +261,7 @@ void *VMM::alloc(size_t mem_size)
     MemoryRequest req = {
         MemoryOp::ALLOC,
         0,
-        0,
+        mem_size,
         0,
         cur_task
     };

@@ -24,6 +24,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef DP_FIFO_H
+#define DP_FIFO_H
+
 /*
  * Dav1dPlay FIFO helper
  */
@@ -61,3 +64,6 @@ void *dp_fifo_shift(Dav1dPlayPtrFifo *fifo);
 void dp_fifo_push(Dav1dPlayPtrFifo *fifo, void *element);
 
 void dp_fifo_flush(Dav1dPlayPtrFifo *fifo, void (*destroy_elem)(void *));
+
+
+#endif // DP_FIFO_H

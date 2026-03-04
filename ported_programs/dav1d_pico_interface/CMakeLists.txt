@@ -50,6 +50,9 @@ add_executable( ${PROJECT_NAME}
     dav1dplay.c
 )
 
+# Add the linker for virtual memory offset
+pico_set_linker_script(Dav1d_pico ${CMAKE_CURRENT_LIST_DIR}/virtual_memmap.ld)
+
 # Add all needed libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     freertos_config
@@ -61,9 +64,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # Add custom PAL header
-target_include_directories(${PROJECT_NAME} INTERFACE
-    "/workspaces/pico/program/modules/pal"
-)
+# target_include_directories(${PROJECT_NAME} INTERFACE
+#     "/workspaces/pico/program/modules/pal"
+# )
 
 # Adding Source code
 target_include_directories(${PROJECT_NAME} INTERFACE

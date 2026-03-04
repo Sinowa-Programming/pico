@@ -100,7 +100,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             vTaskResume(client_task_tcb);
             break;
 
-        case START_CLIENT:
+        case START_CLIENT:  // This also resets the client if it is actively running
             start_client_task();
             break;
 

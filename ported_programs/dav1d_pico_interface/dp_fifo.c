@@ -32,8 +32,8 @@
 // FIFO structure
 struct dp_fifo
 {
-    SDL_mutex *lock;
-    SDL_cond *cond_change;
+    pthread_mutex_t lock;
+    pthread_cond_t cond_change;
     size_t capacity;
     size_t count;
     void **entries;
@@ -59,14 +59,12 @@ Dav1dPlayPtrFifo *dp_fifo_create(size_t capacity)
     fifo->push_wait = 0;
     fifo->flush = 0;
 
-    fifo->lock = SDL_CreateMutex();
-    if (fifo->lock == NULL) {
+    if (pthread_mutex_init(&fifo->lock, NULL) != 0) {
         free(fifo);
         return NULL;
     }
-    fifo->cond_change = SDL_CreateCond();
-    if (fifo->cond_change == NULL) {
-        SDL_DestroyMutex(fifo->lock);
+    if (pthread_cond_init(&fifo->cond_change, NULL) != 0) {
+        pthread_mutex_destroy(&fifo->lock);
         free(fifo);
         return NULL;
     }
@@ -84,8 +82,8 @@ Dav1dPlayPtrFifo *dp_fifo_create(size_t capacity)
 void dp_fifo_destroy(Dav1dPlayPtrFifo *fifo)
 {
     assert(fifo->count == 0);
-    SDL_DestroyMutex(fifo->lock);
-    SDL_DestroyCond(fifo->cond_change);
+    pthread_mutex_destroy(&fifo->lock);
+    pthread_cond_destroy(&fifo->cond_change);
     free(fifo->entries);
     free(fifo);
 }
@@ -93,21 +91,21 @@ void dp_fifo_destroy(Dav1dPlayPtrFifo *fifo)
 // Push to FIFO
 void dp_fifo_push(Dav1dPlayPtrFifo *fifo, void *element)
 {
-    SDL_LockMutex(fifo->lock);
+    pthread_mutex_lock(&fifo->lock);
     while (fifo->count == fifo->capacity) {
         fifo->push_wait = 1;
-        SDL_CondWait(fifo->cond_change, fifo->lock);
+        pthread_cond_wait(&fifo->cond_change, &fifo->lock);
         fifo->push_wait = 0;
         if (fifo->flush) {
-            SDL_CondSignal(fifo->cond_change);
-            SDL_UnlockMutex(fifo->lock);
+            pthread_cond_signal(&fifo->cond_change);
+            pthread_mutex_unlock(&fifo->lock);
             return;
         }
     }
     fifo->entries[fifo->count++] = element;
     if (fifo->count == 1)
-        SDL_CondSignal(fifo->cond_change);
-    SDL_UnlockMutex(fifo->lock);
+        pthread_cond_signal(&fifo->cond_change);
+    pthread_mutex_unlock(&fifo->lock);
 }
 
 // Helper that shifts the FIFO array
@@ -122,26 +120,29 @@ static void *dp_fifo_array_shift(void **arr, size_t len)
 // Get item from FIFO
 void *dp_fifo_shift(Dav1dPlayPtrFifo *fifo)
 {
-    SDL_LockMutex(fifo->lock);
+    pthread_mutex_lock(&fifo->lock);
     while (fifo->count == 0)
-        SDL_CondWait(fifo->cond_change, fifo->lock);
+        pthread_cond_wait(&fifo->cond_change, &fifo->lock);
     void *res = dp_fifo_array_shift(fifo->entries, fifo->count--);
     if (fifo->count == fifo->capacity - 1)
-        SDL_CondSignal(fifo->cond_change);
-    SDL_UnlockMutex(fifo->lock);
+        pthread_cond_signal(&fifo->cond_change);
+    pthread_mutex_unlock(&fifo->lock);
     return res;
 }
 
 void dp_fifo_flush(Dav1dPlayPtrFifo *fifo, void (*destroy_elem)(void *))
 {
-    SDL_LockMutex(fifo->lock);
+    pthread_mutex_lock(&fifo->lock);
     fifo->flush = 1;
     if (fifo->push_wait) {
-        SDL_CondSignal(fifo->cond_change);
-        SDL_CondWait(fifo->cond_change, fifo->lock);
+        pthread_cond_signal(&fifo->cond_change);
+        pthread_cond_wait(&fifo->cond_change, &fifo->lock);
     }
     while (fifo->count)
-        destroy_elem(fifo->entries[--fifo->count]);
+        if (fifo->entries[fifo->count - 1] != NULL)
+            destroy_elem(fifo->entries[--fifo->count]);
+        else
+            fifo->count--;
     fifo->flush = 0;
-    SDL_UnlockMutex(fifo->lock);
+    pthread_mutex_unlock(&fifo->lock);
 }
