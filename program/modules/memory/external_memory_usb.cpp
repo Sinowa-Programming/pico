@@ -1,4 +1,5 @@
 #include "external_memory.h"
+#include <cstring>
 #ifdef USB_COMM
 
 static void transmit_page(uint8_t* page_data, uint32_t page_index);
@@ -13,34 +14,78 @@ void ExternalMemory::run() {
     while (true) {
         // Wait for a request from the VMM
         if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY)) {
-            if (active_req->op == MemoryOp::READ) {
-                // The page is not in memory. Load it.
-                CommunicationHeader header = {
-                    MCU_ID,
-                    PAGE_TABLE_READ,
-                    2,  // The two bytes of the page id to read
-                };
-                send_chunked((uint8_t*)&header, sizeof(header));
-                send_chunked((uint8_t* )&(active_req->v_page_id), 2);
-            } else if(active_req->op == MemoryOp::WRITE) {
-                CommunicationHeader header = {
-                    MCU_ID,
-                    PAGE_TABLE_WRITE,
-                    PAGE_SIZE + 2,  // The actual data + the two bytes of the page id to write
-                };
-                send_chunked((uint8_t*)&header, sizeof(header));
-                send_chunked((uint8_t* )&(active_req->v_page_id), 2);
-                send_chunked(active_req->sram_buffer, 4096);
-            } else if(active_req->op == MemoryOp::ALLOC) {
-                CommunicationHeader header = {
-                    MCU_ID,
-                    PAGE_TABLE_ALLOC,
-                    sizeof(size_t),    // Tell the swap system the size of the block we are requesting
-                };
-                send_chunked((uint8_t*)&header, sizeof(header));
-                send_chunked((uint8_t*)&(active_req->frame_index), sizeof(size_t));
-            }
+            switch(active_req->op) {
+                case MemoryOp::READ: {
+                    // The page is not in memory. Load it.
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        PAGE_TABLE_READ,
+                        2,  // The two bytes of the page id to read
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+                    break;
+                }
 
+                case MemoryOp::WRITE: {
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        PAGE_TABLE_WRITE,
+                        PAGE_SIZE + 2,  // The actual data + the two bytes of the page id to write
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+                    send_chunked(active_req->sram_buffer, 4096);
+                    break;
+                }
+
+                case MemoryOp::ALLOC: {
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        PAGE_TABLE_ALLOC,
+                        sizeof(size_t),    // Tell the swap system the size of the block we are requesting
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&(active_req->frame_index), sizeof(size_t));
+                    break;
+                }
+
+                case MemoryOp::FOPEN: {
+                    char* filename = (char *)(active_req->v_page_id);
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        FILE_OPEN,
+                        strlen(filename)
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)filename, strlen(filename));
+                }
+                case MemoryOp::FCLOSE: {
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        FILE_CLOSE,
+                        0
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                }
+                case MemoryOp::FREAD: {
+                    // Data to be sent over
+                    struct __attribute((__packed)) {
+                        uint32_t file_offset;
+                        uint32_t data_length;
+                    } file_read_header;
+                    file_read_header.file_offset = active_req->v_page_id;
+                    file_read_header.data_length = active_req->frame_index;
+
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        FILE_READ,
+                        sizeof(file_read_header)
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&file_read_header, sizeof(file_read_header));
+                }
+            }
 
             // Sleep until the task is done
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);

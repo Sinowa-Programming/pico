@@ -68,13 +68,15 @@ void VMM::update_mpu_access(uint16_t frame_to_enable)
         region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
     }
 
+    mpu_enabled.clear(region_frame[1]);
+
     // Replace the old region number's frame with the new frame
     region_frame[1] = frame_to_enable;
     queue_try_add(&mpu_region_frame_fifo, region_frame);
     mpu_enabled.set(frame_to_enable);   // Update the bit array
 
     // Enable access to the new frame
-    uint32_t base_addr = frame_to_enable * PAGE_SIZE;
+    uint32_t base_addr = get_physical_ptr(frame_to_enable);
     set_addr_nexec(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
 }
 
@@ -269,4 +271,39 @@ void *VMM::alloc(size_t mem_size)
     xTaskNotifyGive(cur_task);
 
     return (void*)(VIRTUAL_MEMORY_BASE + (req.v_page_id * PAGE_SIZE));  // The data will always be page aligned.
+}
+
+void VMM::file_access(uint32_t file_offset)
+{
+    // If the address is in bounds then it is already loaded
+    if(!(file_page_frame_base <= file_offset && file_offset <= file_page_frame_base + PAGE_SIZE)) {
+        return;
+    } else {
+        MemoryRequest req = {
+            MemoryOp::FREAD,
+            file_offset,
+            PAGE_SIZE,
+            file_frame,
+            xTaskGetCurrentTaskHandle()
+        };
+        _external_memory->submit_request(req);
+        xTaskNotifyGive(NULL);
+    }
+    // If the queue is full then there are no available MPU regions. We have to replace one of them.
+    uint16_t region_frame[2];
+
+    if(queue_is_full(&mpu_region_frame_fifo)) {
+        queue_try_remove(&mpu_region_frame_fifo, region_frame);
+    } else {
+        // Add a new region to the list
+        region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
+    }
+
+    mpu_enabled.clear(region_frame[1]);
+
+    // Replace the old region number's frame with the new frame
+    queue_try_add(&mpu_region_frame_fifo, region_frame);
+
+    // Enable access to the file
+    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + PAGE_SIZE, true);
 }

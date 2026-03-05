@@ -20,14 +20,20 @@ const uint32_t MAX_RESIDENT_BITS = MAX_PHYSICAL_FRAMES / 32;
 typedef enum {
     READ,       // The device wants to pull data from the host
     WRITE,      // The device wants to write data to the host
-    ALLOC       // The device needs the host to provide it with an empty page
+    ALLOC,      // The device needs the host to provide it with an empty page
+
+    // For files specifically. These will affect the file buffer.
+    FREAD,
+    FWRITE,
+    FOPEN,
+    FCLOSE
 } MemoryOp;
 
 struct MemoryRequest {
     MemoryOp op;
-    uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc.
-    uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten. If it is Alloc, it is used as the memory request size
-    uint8_t* sram_buffer;   // Pointer to the page in memory
+    uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc. Pointer to the file name if it is FOPEN. The file offset to load if it is FREAD.
+    uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten. If it is Alloc, it is used as the memory request size. Returned file size if it is FOPEN. The size of the area to load if it is FOPEN.
+    uint8_t* sram_buffer;   // Pointer to the page in memory. Pointer to the file page in memory if it is a FREAD/FWRITE
     TaskHandle_t task;      // The task that owns the request
 };
 

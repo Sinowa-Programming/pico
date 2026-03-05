@@ -6,6 +6,7 @@
 
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
+#include "virtual_file.h"
 // #include "mpu_config.h"
 
 extern inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
@@ -13,6 +14,11 @@ extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address,
 class ExternalMemory;
 
 class VMM {
+    // File
+    uint32_t file_page_frame_base;      // The file offset base that is loaded.
+    uint8_t file_frame[PAGE_SIZE];  // The physical frame location of a file
+
+    // Translation Tables
     int16_t page_to_frame[NUM_PAGES];                       // Virtual Page ID -> physical sram frame idx
     uint32_t frame_to_page[MAX_PHYSICAL_FRAMES];            // Physical sram frame idx -> Virtual Page ID
 
@@ -29,11 +35,10 @@ class VMM {
 
     ExternalMemory *_external_memory;
 
-
     void clear_page(uint32_t page_id, bool block_until_cleared);
     uint8_t get_available_frame();  // Returns the first available frame's index( Will boot a page is needed. )
 
-    /* MPU CODE */
+    /* === MPU CODE === */
     /* Only MPU Regions 1-7 are used by the access code. Region 0 is for the current frame the program counter is in.*/
     queue_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
     FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.
@@ -82,12 +87,19 @@ public:
     /// @return virtual address of the frame
     uintptr_t get_vaddr_from_frame(uint32_t frame_id);
 
-    /* memory allocation functions */
+    /* === memory allocation functions === */
 
     /// @brief Allocates a page and returns the frame that it is in.
     /// @param mem_size The size of the memory block to be allocated
     /// @return Returns the virtual address to the start of the object
     void *alloc(size_t mem_size);
+    /* ========================= */
+
+    /* === File Access Functions === */
+    uint8_t* get_file_frame() { return file_frame; };
+
+    void file_access(uint32_t file_offset);
+
 };
 
 #endif  // INTERNAL_MEMORY_H
