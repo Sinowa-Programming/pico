@@ -4,11 +4,6 @@
 #include "tusb.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "comm_commands.h"
-
-#include "pal.h"
-#include "memory.hpp"   // For the page size
-#include "client_map.h"
 
 // Task stack size: Needs to be large enough to handle USB descriptors and callbacks
 // 2048 - 4096 bytes is usually safe for CDC/MSC.

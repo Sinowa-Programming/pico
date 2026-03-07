@@ -2,8 +2,6 @@
 #define VIRTUAL_FILE_H
 
 #include "pico/stdlib.h"
-#include "pal.h"
-#include "memory.hpp"
 
 // Define a 16MB window for the bitstream (adjust based on your needs)
 #define VIRTUAL_FILE_BASE  0x80000000

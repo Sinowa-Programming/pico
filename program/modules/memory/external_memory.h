@@ -9,9 +9,7 @@
 #include "task.h"
 #include "portmacro.h"
 
-#include "memory.hpp"
 #include "internal_memory.h"
-#include "comm_commands.h"
 
 #define USB_COMM
 
@@ -60,6 +58,7 @@ class ExternalMemory {
 
     QueueHandle_t mem_requests;
 
+    void *rx_buffer;    // Stores a pointer to any data the communication handler sends to the External Memory
     MemoryRequest *active_req;
 
     VMM *internal_memory;
@@ -87,11 +86,11 @@ public:
     uint8_t* get_memory_request_sram_buffer();
 
     // A page has been transfered
-    void notify_transfer_completion();
-
-    // The host has return an address for the data point
-    void notify_allocation_completion(uint32_t v_mem_addr);
+    void notify_transfer_completion(void *buffer = nullptr);
 };
+
+
+static void send_chunked(uint8_t* data, uint32_t len);
 #endif
 
 #endif  // EXTERNAL_MEMORY_H

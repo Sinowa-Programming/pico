@@ -7,7 +7,6 @@
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
 #include "virtual_file.h"
-// #include "mpu_config.h"
 
 extern inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);

@@ -1,5 +1,11 @@
 #include "usb_comm.h"
 
+#include "comm_commands.h"
+#include "pal.h"
+#include "memory.hpp"   // For the page size
+#include "client_map.h"
+#include "virtual_file.h"
+
 TaskHandle_t usb_device_task_tcb;
 
 void usb_comm_setup() {
@@ -76,22 +82,13 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
                 buffer_data_chunk(buffer + 2, bufsize - 2);
             }
             break;
-        
-        case PAGE_TABLE_ALLOC:
-            external_memory.notify_allocation_completion(buffer[2] << 16 || buffer[3]);
+
+        case PAGE_TABLE_ALLOC: {
+            uint32_t vaddr = buffer[2] << 16 || buffer[3];
+            external_memory.notify_transfer_completion(&vaddr);
             break;
-        // The page does not need to reach the memory of the device, currently, the device sends the requests
-        // case PAGE_TABLE_READ:
-        //     page_dest_ptr = external_memory.get_memory_request_sram_buffer();
-        //     transfer_offset = 0;
-        //     data_receiving = true;
-
-        //     // Handle payload included in THIS packet (after the 2 header bytes)
-        //     if (bufsize > 2) {
-        //         buffer_data_chunk(buffer + 2, bufsize - 2);
-        //     }
-        //     break;
-
+        }
+        
         case HALT_CLIENT:
             vTaskSuspend(client_task_tcb);
             break;
@@ -104,6 +101,22 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             start_client_task();
             break;
 
+        case FILE_OPEN: {
+            uint32_t file_size = buffer[2] << 16 || buffer[3];
+            external_memory.notify_transfer_completion(&file_size);
+            break;
+        }
+
+        case FILE_READ:
+            page_dest_ptr = (uint8_t *)VIRTUAL_FILE_BASE;
+            transfer_offset = 0;
+            data_receiving = true;
+
+            // Handle payload included in THIS packet (after the 2 header bytes)
+            if (bufsize > 2) {
+                buffer_data_chunk(buffer + 2, bufsize - 2);
+            }
+            break;
         default:
             // An invalid command was sent
             break;

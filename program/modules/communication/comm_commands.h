@@ -37,7 +37,7 @@ enum {
     FILE_OPEN = 0x4,    // Get the file size.
     FILE_CLOSE = 0x5,   // Closes the file handler.
     FILE_READ = 0x6,    // Sends a page of data from swap side to the file buffer
-    // FILE_WRITE = 0x7,   // Writes the page of data from the file buffer to the swap side
+    FILE_WRITE = 0x7,   // Writes the page of data from the file buffer to the swap side
 
     PAGE_TABLE_ALLOC = 0xD,
     PAGE_TABLE_READ = 0xE,  // swap -> local page

@@ -1,5 +1,10 @@
 #include "external_memory.h"
+
 #include <cstring>
+#include "memory.hpp"
+#include "internal_memory.h"
+#include "comm_commands.h"
+
 #ifdef USB_COMM
 
 static void transmit_page(uint8_t* page_data, uint32_t page_index);
@@ -23,7 +28,10 @@ void ExternalMemory::run() {
                         2,  // The two bytes of the page id to read
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+                    send_chunked((uint8_t* )&(active_req->v_page_id), 4);
+
+                    // Sleep until the request is done
+                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     break;
                 }
 
@@ -34,7 +42,7 @@ void ExternalMemory::run() {
                         PAGE_SIZE + 2,  // The actual data + the two bytes of the page id to write
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t* )&(active_req->v_page_id), 2);
+                    send_chunked((uint8_t* )&(active_req->v_page_id), 4);
                     send_chunked(active_req->sram_buffer, 4096);
                     break;
                 }
@@ -47,6 +55,12 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req->frame_index), sizeof(size_t));
+
+                    // Sleep until the request is done
+                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+                    active_req->v_page_id = (uint32_t)rx_buffer / PAGE_SIZE;
+                    internal_memory->notify_completion(active_req);
                     break;
                 }
 
@@ -59,6 +73,9 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)filename, strlen(filename));
+
+                    // Sleep until the request is done
+                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                 }
                 case MemoryOp::FCLOSE: {
                     CommunicationHeader header = {
@@ -84,11 +101,33 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&file_read_header, sizeof(file_read_header));
+
+                    // Sleep until the request is done
+                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                }
+                case MemoryOp::FWRITE: {
+                    // Data to be sent over
+                    struct __attribute((__packed)) {
+                        uint32_t file_offset;
+                        uint32_t data_length;
+                    } file_write_header;
+                    file_write_header.file_offset = active_req->v_page_id;
+                    file_write_header.data_length = active_req->frame_index;
+
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        FILE_WRITE,
+                        sizeof(file_write_header) + PAGE_SIZE,  // The file header + the actual data
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&file_write_header, sizeof(file_write_header));
+                    send_chunked((uint8_t *)VIRTUAL_FILE_BASE + file_write_header.file_offset, PAGE_SIZE);
                 }
             }
 
-            // Sleep until the task is done
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            if(active_req->task != NULL) {
+                xTaskNotifyGive(active_req->task);
+            }
         }
     }
 }
@@ -111,17 +150,10 @@ uint8_t* ExternalMemory::get_memory_request_sram_buffer() {
     return active_req->sram_buffer;
 }
 
-void ExternalMemory::notify_transfer_completion() {
-    // Notify the ExternalMemory Task to process the full page
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xTaskNotifyGive(run_task);
-}
+void ExternalMemory::notify_transfer_completion(void *buffer = nullptr) {
+    rx_buffer = buffer;
 
-// Tell the External Memory Manager that a memory address has been allocated to it.
-void ExternalMemory::notify_allocation_completion(uint32_t v_mem_addr)
-{
-    active_req->v_page_id = v_mem_addr / PAGE_SIZE;
-    internal_memory->notify_completion(active_req);
+    // Notify the ExternalMemory Task to process the full page
     xTaskNotifyGive(run_task);
 }
 

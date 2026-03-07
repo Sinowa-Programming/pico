@@ -1,7 +1,9 @@
 #include "virtual_file.h"
+#include "pal.h"
+#include "memory.hpp"
 
 // This replaces the standard fopen
-void* emulated_mmap_open(const char* filename) {
+void* vmm_fopen(const char* filename) {
     if (g_vfile.is_open) return NULL; // Only supporting one file for simplicity
 
     MemoryRequest req = {
@@ -27,7 +29,7 @@ void* emulated_mmap_open(const char* filename) {
     return (void*)g_vfile.start_addr;
 }
 
-void emulated_mmap_close(void* ptr) {
+void vmm_fclose(void* ptr) {
     if ((uint32_t)ptr == VIRTUAL_FILE_BASE) {
         MemoryRequest req = {
             .op = MemoryOp::FCLOSE,
@@ -51,7 +53,7 @@ uint32_t file_mpu_fault(uint32_t fault_addr) {
         // Load the file at the offset into the frame
         vmm.file_access(file_offset);
 
-        return vmm.get_file_frame();    // Return the pointer to the buffer.
+        return (uint32_t)vmm.get_file_frame();    // Return the pointer to the buffer.
     }
     return 0;   // Not a file.
 }

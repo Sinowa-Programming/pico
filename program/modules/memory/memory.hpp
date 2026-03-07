@@ -31,9 +31,28 @@ typedef enum {
 
 struct MemoryRequest {
     MemoryOp op;
-    uint32_t v_page_id;     // The virtual page being operated on. Or the newly provided page id if the op is Alloc. Pointer to the file name if it is FOPEN. The file offset to load if it is FREAD.
-    uint32_t frame_index;    // The physical SRAM frame used. If the op is read, then it is overwritten. If it is Alloc, it is used as the memory request size. Returned file size if it is FOPEN. The size of the area to load if it is FOPEN.
-    uint8_t* sram_buffer;   // Pointer to the page in memory. Pointer to the file page in memory if it is a FREAD/FWRITE
+    /*
+    READ | WRITE: The virtual page being operated on.
+    ALLOC: Or the newly provided page id.
+    FOPEN: Pointer to the file name
+    FREAD | FWRITE: The file offset
+    */
+    uint32_t v_page_id;
+
+    /*
+    READ: It is overwritten
+    ALLOC: Memory request size
+    FOPEN: Returned file size
+    FREAD | FWRITE: The size of the area to load/save.
+    */
+    uint32_t frame_index;
+
+    /*
+    READ | WRITE: Pointer to the page in memory
+    FREAD: Not used as file buffer is statically allocated.
+    */
+    uint8_t* sram_buffer;
+
     TaskHandle_t task;      // The task that owns the request
 };
 
