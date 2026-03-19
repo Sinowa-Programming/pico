@@ -36,13 +36,16 @@
 #include "dp_fifo.h"
 #include "dp_renderer.h"
 
+#include "dav1dplay.h"
+
 #include <stdio.h>
 #include <pico/stdlib.h>
+#include "pico/time.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 #include "pthread.h"
-#include "types.h"
+#include "FreeRTOS_POSIX_types.h"
 
 #define FRAME_OFFSET_TO_PTS(foff) \
     (uint64_t)(((foff) * rd_ctx->spf) * 1000000000.0 + .5)
@@ -335,7 +338,7 @@ static void dp_rd_ctx_render(Dav1dPlayRenderContext *rd_ctx)
 {
     pthread_mutex_lock(rd_ctx->lock);
     // Calculate time since last frame was received
-    uint32_t ticks_now = get_ticks_ms();
+    uint32_t ticks_now = to_ms_since_boot(get_absolute_time());;
     uint32_t ticks_diff = (rd_ctx->last_ticks != 0) ? ticks_now - rd_ctx->last_ticks : 0;
 
     // Calculate when to display the frame
@@ -359,7 +362,7 @@ static void dp_rd_ctx_render(Dav1dPlayRenderContext *rd_ctx)
     renderer_info->render(rd_ctx->rd_priv, &rd_ctx->settings);
 
     rd_ctx->last_ts = rd_ctx->current_ts;
-    rd_ctx->last_ticks = get_ticks_ms();
+    rd_ctx->last_ticks = to_ms_since_boot(get_absolute_time());;
 
     pthread_mutex_unlock(rd_ctx->lock);
 }
@@ -448,13 +451,7 @@ static int decoder_thread_main(void *cookie)
 
     // Decoder loop
     while (1) {
-        if (dp_rd_ctx_should_terminate(rd_ctx) ||
-            (res = dp_rd_ctx_handle_seek(rd_ctx, in_ctx, c, &data)) ||
-            (res = decode_frame(&p, c, &data, in_ctx)))
-        {
-            break;
-        }
-        else if (p) {
+        if (p) {
             // Queue frame
             pthread_mutex_lock(rd_ctx->lock);
             int seek = rd_ctx->seek;
@@ -511,7 +508,8 @@ cleanup:
     return (res != DAV1D_ERR(EAGAIN) && res < 0);
 }
 
-int main(int argc, char **argv)
+// used to be main()
+int dav1dplay_main(int argc, char **argv)
 {
     stdio_init_all();
 
@@ -562,19 +560,18 @@ int main(int argc, char **argv)
         }
 
         if (start_time == 0) {
-            start_time = get_ticks_ms();
+            start_time = to_ms_since_boot(get_absolute_time());;
         }
 
-        if (!dp_rd_ctx_should_terminate(rd_ctx)) {
-            dp_rd_ctx_update_with_dav1d_picture(rd_ctx, p);
-            dp_rd_ctx_render(rd_ctx);
-            n_out++;
-        }
+        dp_rd_ctx_update_with_dav1d_picture(rd_ctx, p);
+        dp_rd_ctx_render(rd_ctx);
+        n_out++;
+
         destroy_pic(p);
     }
 
     // Print stats
-    uint32_t time_ms = get_ticks_ms() - start_time - rd_ctx->pause_time;
+    uint32_t time_ms = to_ms_since_boot(get_absolute_time()); - start_time - rd_ctx->pause_time;
     printf("Decoded %u frames in %d seconds, avg %.02f fps\n",
            n_out, time_ms / 1000, n_out/ (time_ms / 1000.0));
 

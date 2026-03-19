@@ -443,6 +443,30 @@ modules/communication/usb_comm.cpp.s:
 	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/communication/usb_comm.cpp.s
 .PHONY : modules/communication/usb_comm.cpp.s
 
+modules/file/virtual_file.o: modules/file/virtual_file.cpp.o
+.PHONY : modules/file/virtual_file.o
+
+# target to build an object file
+modules/file/virtual_file.cpp.o:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/file/virtual_file.cpp.o
+.PHONY : modules/file/virtual_file.cpp.o
+
+modules/file/virtual_file.i: modules/file/virtual_file.cpp.i
+.PHONY : modules/file/virtual_file.i
+
+# target to preprocess a source file
+modules/file/virtual_file.cpp.i:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/file/virtual_file.cpp.i
+.PHONY : modules/file/virtual_file.cpp.i
+
+modules/file/virtual_file.s: modules/file/virtual_file.cpp.s
+.PHONY : modules/file/virtual_file.s
+
+# target to generate assembly for a file
+modules/file/virtual_file.cpp.s:
+	cd /workspaces/pico && $(MAKE) $(MAKESILENT) -f program/CMakeFiles/pico_vpx.dir/build.make program/CMakeFiles/pico_vpx.dir/modules/file/virtual_file.cpp.s
+.PHONY : modules/file/virtual_file.cpp.s
+
 modules/memory/external_memory.o: modules/memory/external_memory.cpp.o
 .PHONY : modules/memory/external_memory.o
 
@@ -2611,6 +2635,9 @@ help:
 	@echo "... modules/communication/usb_comm.o"
 	@echo "... modules/communication/usb_comm.i"
 	@echo "... modules/communication/usb_comm.s"
+	@echo "... modules/file/virtual_file.o"
+	@echo "... modules/file/virtual_file.i"
+	@echo "... modules/file/virtual_file.s"
 	@echo "... modules/memory/external_memory.o"
 	@echo "... modules/memory/external_memory.i"
 	@echo "... modules/memory/external_memory.s"

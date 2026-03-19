@@ -87,7 +87,7 @@ void ExternalMemory::run() {
                 }
                 case MemoryOp::FREAD: {
                     // Data to be sent over
-                    struct __attribute((__packed)) {
+                    struct __attribute__((__packed__)) {
                         uint32_t file_offset;
                         uint32_t data_length;
                     } file_read_header;
@@ -107,7 +107,7 @@ void ExternalMemory::run() {
                 }
                 case MemoryOp::FWRITE: {
                     // Data to be sent over
-                    struct __attribute((__packed)) {
+                    struct __attribute__((__packed__)) {
                         uint32_t file_offset;
                         uint32_t data_length;
                     } file_write_header;
@@ -150,7 +150,7 @@ uint8_t* ExternalMemory::get_memory_request_sram_buffer() {
     return active_req->sram_buffer;
 }
 
-void ExternalMemory::notify_transfer_completion(void *buffer = nullptr) {
+void ExternalMemory::notify_transfer_completion(void *buffer) {
     rx_buffer = buffer;
 
     // Notify the ExternalMemory Task to process the full page

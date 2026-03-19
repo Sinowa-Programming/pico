@@ -42,12 +42,38 @@ SECTIONS
 {
 
     /* MODIFIED
-        This section holds all malloc calls without putting them in the .bin file
+        This section holds the client code
     */
-    .vheap (NOLOAD) : {
-        __vheap_start = .;
-        *(.vheap*)
-        __vheap_end = .;
+    .vram_section (NOLOAD):
+    {
+        . = ALIGN(4);
+        _svram_text = .;
+        
+        /* Grab ALL standard code and data from the pre-compiled archive */
+        *libdav1d.a:(.text .text.*)
+        *libdav1d.a:(.rodata .rodata.*)
+        *libdav1d.a:(.data .data.*)
+
+        *libClient_program*:(.text .text.*)
+        *libClient_program*:(.rodata .rodata.*)
+        *libClient_program*:(.data .data.*)
+
+        . = ALIGN(4);
+        _evram_text = .;
+        /* We have to lie that the memory is in flash so it won't try to flash past the ram size.*/
+    } > VIRTUAL_RAM
+
+    /* This section holds the massive uninitialized buffers */
+    .vram_bss (NOLOAD) :
+    {
+        . = ALIGN(4);
+        _svram_bss = .;
+        
+        *libdav1d.a:(.bss .bss.* COMMON)
+        *libClient_program.a:(.bss .bss.* COMMON)
+
+        . = ALIGN(4);
+        _evram_bss = .;
     } > VIRTUAL_RAM
 
     /* Note unlike RP2040, we start the image with a vector table even for

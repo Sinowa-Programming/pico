@@ -34,7 +34,8 @@ has_function_clock_gettime = true   # Skips the clock_gettime
 
 [built-in options]
 # '--no-warnings' added due to lots of undefined declarations
-c_args = ['--no-warnings', '-nostdinc', '-D_TIMER_T_DECLARED', '-D_CLOCKID_T_DECLARED', '-D_UNISTD_H_', '-D_MODE_T_DECLARED', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include-fixed', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include', '-I/usr/lib/arm-none-eabi/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include/private', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/FreeRTOS-Plus-POSIX/include', '-include', '/workspaces/pico/ported_programs/posix_wrapper/wrapper_main.h','-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=hard', '-mfpu=fpv5-sp-d16', '-ffunction-sections', '-fdata-sections', '-Ofast']
+c_args = ['--no-warnings', '-nostdinc', '-D_TIMER_T_DECLARED', '-D_CLOCKID_T_DECLARED', '-D_UNISTD_H_', '-D_MODE_T_DECLARED', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include-fixed', '-I/usr/lib/gcc/arm-none-eabi/10.3.1/include', '-I/usr/lib/arm-none-eabi/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include/private', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/FreeRTOS-Plus-POSIX/include', '-isystem/workspaces/pico/ported_programs/posix_wrapper/Lab-Project-FreeRTOS-POSIX/include/FreeRTOS_POSIX/sys', '-include', '/workspaces/pico/ported_programs/posix_wrapper/wrapper_main.h','-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=softfp', '-mfpu=fpv5-sp-d16', '-ffunction-sections', '-fdata-sections', '-Ofast']
 
-# Linker flags (GC sections enabled to remove unused code). The nosys.specs provides empty stubs for later integration
-c_link_args = ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=hard', '-mfpu=fpv5-sp-d16', '--specs=nosys.specs', '-Wl,--gc-sections']
+# Linker flags (GC sections enabled to remove unused code). The nosys.specs provides empty stubs for later integration.
+# softfp for compatibility with the rp2350's pico-sdk
+c_link_args = ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=softfp', '-mfpu=fpv5-sp-d16', '--specs=nosys.specs', '-Wl,--gc-sections']

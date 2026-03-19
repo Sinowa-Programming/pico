@@ -6,16 +6,6 @@ void configure_rp2350_mpu()
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
 }
 
-inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
-{
-    set_addr(region_number, base_address, limit_address, access, true);
-}
-
-inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
-{
-    set_addr(region_number, base_address, limit_address, access, false);
-}
-
 void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access, bool execute) {
     uint32_t rbar = 0;
     uint32_t rlar = 0;

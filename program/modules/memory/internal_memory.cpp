@@ -201,7 +201,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 }
 
 
-void VMM::access(uint32_t virtual_addr, bool update_mpu = true) {
+void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
     uint32_t page_id = relative_addr / PAGE_SIZE;

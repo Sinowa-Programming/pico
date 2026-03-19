@@ -1,7 +1,11 @@
 #include "client_map.h"
 
 #include "pal.h"    // Get the sram frames
+#include "mpu_config.h"
+#include "hardware/sync.h"
+#include "RP2350.h"
 
+#include "/workspaces/pico/ported_programs/dav1d_pico_interface/dav1dplay.h"
 TaskHandle_t client_task_tcb;
 
 // Spin lock program when nothing is happening.
@@ -55,9 +59,15 @@ void client_task(void* pvParameters) {
     main_func_t client_main;    // Create the function to load
 
     // Load frame 0 busy loop
-    load_frame(*(vmm.sram_frames[0]), client_main);
+    // load_frame(*(vmm.sram_frames[0]), client_main);
 
-    client_main();  // execute the code
+    // client_main();  // execute the code
+    char *argv[] = {
+        "/home/sinowa/Programming/device_dev/Pico Array/pico/",  // The current working directory of the program
+        "-i",    // Input file command
+        "test-420-8.ivf"    // The test file to decode
+    };
+    dav1dplay_main(3, argv);
 
     vTaskDelete(NULL);
 }

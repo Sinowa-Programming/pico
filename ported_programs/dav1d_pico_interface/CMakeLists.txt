@@ -1,43 +1,42 @@
-cmake_minimum_required(VERSION 3.22)
+# Library that holds the VRAM settings
+add_library(vram_settings INTERFACE)
 
-# Platform to build for e.g. rp2040/rp2350/rp2350-arm-s/rp2350-riscv/host
-set(PICO_PLATFORM "rp2350")  # rp2350-arm-ns = non secure | rp2350-arm-s = secure
-
-# Pull in SDK (must be before project)
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
-
-project(pico_dav1d C CXX ASM)
-
-pico_sdk_init()
-
-# Free RTOS
-add_library(freertos_config INTERFACE)
-target_include_directories(freertos_config INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}
+# Seperate text and data
+target_compile_options(vram_settings INTERFACE
+    -ffunction-sections
+    -fdata-sections
 )
-
-target_compile_definitions(freertos_config INTERFACE
-    configSUPPORT_STATIC_ALLOCATION=0
-    configSUPPORT_DYNAMIC_ALLOCATION=1
-)
-
-set(FREERTOS_KERNEL_PATH ${CMAKE_CURRENT_LIST_DIR}/../../FreeRTOS-Kernel)
-include(FreeRTOS_Kernel_import.cmake)
 
 # Add FreeRTOS Posix
 set( FREERTOS_PLUS_POSIX_PATH "../posix_wrapper/Lab-Project-FreeRTOS-POSIX" )
 file( GLOB FREERTOS_PLUS_POSIX_SOURCES
            ${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/source/*.c )
 
-target_sources( ${PROJECT_NAME} PRIVATE
+add_library(freertos_posix_config STATIC)
+
+target_sources( freertos_posix_config PRIVATE
                 ${FREERTOS_PLUS_POSIX_SOURCES} )
 
-target_include_directories( ${PROJECT_NAME} PRIVATE
+target_include_directories( freertos_posix_config PRIVATE
+                            # Safely get FreeRTOS/Pico headers without compiling their sources
+                            $<TARGET_PROPERTY:freertos_config,INTERFACE_INCLUDE_DIRECTORIES>
+                            $<TARGET_PROPERTY:FreeRTOS-Kernel,INTERFACE_INCLUDE_DIRECTORIES>
+                            $<TARGET_PROPERTY:pico_stdlib,INTERFACE_INCLUDE_DIRECTORIES>
+
+                            ${FREERTOS_PLUS_POSIX_PATH}/..
                             ${FREERTOS_PLUS_POSIX_PATH}/include
+                            ${FREERTOS_PLUS_POSIX_PATH}/include/FreeRTOS_POSIX
                             ${FREERTOS_PLUS_POSIX_PATH}/include/private
                             ${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include
                             ${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include/portable
-                            ${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include/portable/pc/windows )
+                            ${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include/portable/raspberrypi
+                            )
+
+target_link_libraries(freertos_posix_config PRIVATE
+    freertos_config
+)
+
+target_compile_options(freertos_posix_config PRIVATE "-include" "FreeRTOS.h")
 
 # Add Dav1d library
 # The static lib file was copied from dav1d/build/src
@@ -46,37 +45,52 @@ set_target_properties(Dav1d_pico PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/libdav1d.a"
 )
 
-add_executable( ${PROJECT_NAME}
-    dav1dplay.c
+file(GLOB_RECURSE DAV1D_INPUT_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ported_dav1d/dav1d/tools/input/*.c"
 )
-
-# Add the linker for virtual memory offset
-pico_set_linker_script(Dav1d_pico ${CMAKE_CURRENT_LIST_DIR}/virtual_memmap.ld)
-
-# Add all needed libraries
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    freertos_config
-    FreeRTOS-Kernel
-    pico_async_context_freertos
-    FreeRTOS-Kernel-Heap4
-    pico_stdlib
-    Dav1d_pico
-)
-
-# Add custom PAL header
-# target_include_directories(${PROJECT_NAME} INTERFACE
-#     "/workspaces/pico/program/modules/pal"
-# )
 
 # Adding Source code
-target_include_directories(${PROJECT_NAME} INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}
-)
-
-target_sources( ${PROJECT_NAME} PRIVATE
+add_library(Client_program STATIC
+    dav1dplay.c
     dp_fifo.c
-    dp_renderer_placebo.c
-    dp_renderer_sdl.c
+    dp_renderer_pico.c
+
+    ${DAV1D_INPUT_SOURCES}
+)
+target_include_directories(Client_program PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+
+    # DAV1D includes
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ported_dav1d/dav1d/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ported_dav1d/dav1d"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ported_dav1d/dav1d/include/dav1d"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ported_dav1d/dav1d/tools"
+
+    # FreeRTOS includes
+    "${FREERTOS_PLUS_POSIX_PATH}/include"
+    "${FREERTOS_PLUS_POSIX_PATH}/include/FreeRTOS_POSIX"
+    "${FREERTOS_PLUS_POSIX_PATH}/include/private"
+    "${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include"
+    "${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include/portable"
+    "${FREERTOS_PLUS_POSIX_PATH}/FreeRTOS-Plus-POSIX/include/portable/raspberrypi"
+
+    # Safely get FreeRTOS/Pico headers without compiling their sources
+    $<TARGET_PROPERTY:FreeRTOS-Kernel,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:pico_stdlib,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:freertos_config,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:freertos_posix_config,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
-pico_add_extra_outputs(${PROJECT_NAME})
+
+target_link_libraries(Client_program PRIVATE
+    Dav1d_pico
+    freertos_config
+    freertos_posix_config
+    vram_settings
+)
+
+target_compile_definitions(Client_program PRIVATE
+    $<TARGET_PROPERTY:pico_stdlib,INTERFACE_COMPILE_DEFINITIONS>
+)
+
+target_compile_options(Client_program PRIVATE "-include" "FreeRTOS.h")

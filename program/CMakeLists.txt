@@ -14,13 +14,17 @@ pico_set_linker_script(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/program/custom_pico_m
 
 
 pico_set_binary_type(${PROJECT_NAME} no_flash)
-
+# set_target_properties(${PROJECT_NAME} PROPERTIES
+#     PICO_NO_FLASH 1
+#     PICO_COPY_TO_RAM 0
+# )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/..
     ${CMAKE_CURRENT_LIST_DIR}/modules/pal
     ${CMAKE_CURRENT_LIST_DIR}/modules/communication
     ${CMAKE_CURRENT_LIST_DIR}/modules/memory
+    ${CMAKE_CURRENT_LIST_DIR}/modules/file
     ${CMAKE_CURRENT_LIST_DIR}/main
     ${CMAKE_CURRENT_LIST_DIR}   # For tusb_config.h
 )
@@ -45,6 +49,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
     # cmsis headers
     cmsis_core
+
+    Client_program
+)
+
+target_link_options(${PROJECT_NAME} PRIVATE
+    "-Wl,--whole-archive"
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE Client_program)
+
+target_link_options(${PROJECT_NAME} PRIVATE
+    "-Wl,--no-whole-archive"
 )
 
 pico_add_extra_outputs(${PROJECT_NAME})

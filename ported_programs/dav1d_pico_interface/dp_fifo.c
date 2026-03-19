@@ -24,10 +24,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <SDL.h>
 #include <assert.h>
 
 #include "dp_fifo.h"
+#include "pthread.h"
 
 // FIFO structure
 struct dp_fifo

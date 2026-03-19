@@ -27,6 +27,8 @@
 #ifndef DP_FIFO_H
 #define DP_FIFO_H
 
+#include "pico/stdlib.h"
+
 /*
  * Dav1dPlay FIFO helper
  */
