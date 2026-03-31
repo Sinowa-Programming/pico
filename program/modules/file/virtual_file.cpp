@@ -24,18 +24,20 @@ size_t __wrap__fread( void * ptr, size_t size, size_t count, VirtualFile * strea
     return vmm.file_read(ptr, size, count, stream);
 }
 
+// NOTE: I don't believe that there is any point to use the MPU to check for file accesses, as they should only be accessed
+// from the wrapped file access functions
 uint32_t file_mpu_fault(uint32_t fault_addr) {
-    // Check if the fault is within our File Mapping Range
-    if (fault_addr >= VIRTUAL_FILE_BASE && fault_addr < VIRTUAL_FILE_END) {
+    // // Check if the fault is within our File Mapping Range
+    // if (fault_addr >= VIRTUAL_FILE_BASE && fault_addr < VIRTUAL_FILE_END) {
 
-        // Calculate the offset into the file
-        uint32_t file_offset = fault_addr - VIRTUAL_FILE_BASE;
+    //     // Calculate the offset into the file
+    //     uint32_t file_offset = fault_addr - VIRTUAL_FILE_BASE;
 
-        // Load the file at the offset into the frame
-        vmm.file_access(file_offset);
+    //     // Load the file at the offset into the frame
+    //     vmm.file_access(file_offset);
 
-        return (uint32_t)vmm.get_file_frame();    // Return the pointer to the buffer.
-    }
+    //     return (uint32_t)vmm.get_file_frame();    // Return the pointer to the buffer.
+    // }
     return 0;   // Not a file.
 }
 

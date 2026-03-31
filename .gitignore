@@ -16,3 +16,4 @@ cmake_install.cmake
 *.bin
 *.dis
 build
+pico_flash_region.ld
