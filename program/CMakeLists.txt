@@ -20,6 +20,8 @@ pico_set_binary_type(${PROJECT_NAME} no_flash)
 # )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/libs
+
     ${CMAKE_CURRENT_LIST_DIR}/..
     ${CMAKE_CURRENT_LIST_DIR}/modules/pal
     ${CMAKE_CURRENT_LIST_DIR}/modules/communication

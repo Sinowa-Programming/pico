@@ -1,46 +1,27 @@
+#include <sys/types.h>
+
+// #define KOMIHASH_NS_CUSTOM komihash
+#include "komihash/komihash.h"
+
 #include "virtual_file.h"
 #include "pal.h"
 #include "memory.hpp"
 
-// This replaces the standard fopen
-void* vmm_fopen(const char* filename) {
-    if (g_vfile.is_open) return NULL; // Only supporting one file for simplicity
-
-    MemoryRequest req = {
-        .op = MemoryOp::FOPEN,
-        .v_page_id = (uint32_t)filename, // Cast pointer to 32-bit integer
-        .frame_index = 0,                 // Not used for FOPEN
-        .sram_buffer = NULL,             // Not used for FOPEN
-        .task = xTaskGetCurrentTaskHandle()
-    };
-    external_memory.submit_request(req);
-
-    xTaskNotifyGive(NULL);  // Wait until the file has been loaded
-
-    uint32_t file_size = req.frame_index;   // Get the file size
-    if (file_size == 0) return NULL;
-
-    g_vfile.start_addr = VIRTUAL_FILE_BASE;
-    g_vfile.size = file_size;
-    g_vfile.current_pos = 0;
-    g_vfile.is_open = true;
-
-    // Return the "pointer" to the start of the virtual range
-    return (void*)g_vfile.start_addr;
+// Return a pointer to the Virtual file on success.
+VirtualFile* __wrap__fopen(const char *file, int flags, ...) {
+    return vmm.file_open(file, flags);
 }
 
-void vmm_fclose(void* ptr) {
-    if ((uint32_t)ptr == VIRTUAL_FILE_BASE) {
-        MemoryRequest req = {
-            .op = MemoryOp::FCLOSE,
-            .v_page_id = 0, // Cast pointer to 32-bit integer
-            .frame_index = 0,                 // Not used for FCLOSE
-            .sram_buffer = NULL,             // Not used for FCLOSE
-            .task = NULL    // No task is suspended when closing a file.
-        };
-        external_memory.submit_request(req);
-        g_vfile.is_open = false;
-    }
+int __wrap__fclose(void* ptr) {
+    return vmm.file_close((VirtualFile *)ptr);
+}
+
+size_t __wrap__fwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream) {
+    return vmm.file_write(buffer, size, count, stream);
+}
+
+size_t __wrap__fread( void * ptr, size_t size, size_t count, VirtualFile * stream ) {
+    return vmm.file_read(ptr, size, count, stream);
 }
 
 uint32_t file_mpu_fault(uint32_t fault_addr) {
@@ -56,4 +37,9 @@ uint32_t file_mpu_fault(uint32_t fault_addr) {
         return (uint32_t)vmm.get_file_frame();    // Return the pointer to the buffer.
     }
     return 0;   // Not a file.
+}
+
+inline static uint32_t hash(const char *file)
+{
+    return komihash(file, strlen(file), 42);
 }

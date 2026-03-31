@@ -48,7 +48,7 @@ struct MemoryRequest {
     uint32_t frame_index;
 
     /*
-    READ | WRITE: Pointer to the page in memory
+    READ | WRITE | FWRITE: Pointer to the page in memory
     FREAD: Not used as file buffer is statically allocated.
     */
     uint8_t* sram_buffer;

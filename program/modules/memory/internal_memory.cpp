@@ -1,4 +1,6 @@
 #include "internal_memory.h"
+#include <cmath>
+#include <cstring>
 
 void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 {
@@ -121,7 +123,8 @@ void VMM::update_lru_access(uint8_t frame_idx) {
 }
 
 
-void VMM::run() {
+void VMM::run()
+{
     while (true) {
         // Wake up every 100ms to age the pages
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -146,7 +149,6 @@ void VMM::run() {
     xSemaphoreGive(vmmMutex);
 }
 
-
 VMM::VMM() {
     vmmMutex = xSemaphoreCreateMutex();
 
@@ -158,6 +160,8 @@ VMM::VMM() {
     }
 
     queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 7);  // There are 8 regions, but 1 region is being used by the active program. The rest are being accessed.
+
+    queue_init(&file_lru_fifo, sizeof(uint16_t), MAX_VIRTUAL_FILES);
 }
 
 
@@ -273,10 +277,179 @@ void *VMM::alloc(size_t mem_size)
     return (void*)(VIRTUAL_MEMORY_BASE + (req.v_page_id * PAGE_SIZE));  // The data will always be page aligned.
 }
 
-void VMM::file_access(uint32_t file_offset)
+VirtualFile* VMM::file_open(const char *file, char* flags)
 {
+    uint32_t file_hash = hash(file);
+
+    // Check if the file is already loaded
+    for(VirtualFile &loaded_file : file_data) {
+        if(loaded_file.file_hash == file_hash) {
+            return &loaded_file;
+        }
+    }
+
+    // Load the file externally
+    MemoryRequest req = {
+        .op = MemoryOp::FOPEN,
+        .v_page_id = (uint32_t)file, // Cast pointer to 32-bit integer
+        .frame_index = 0,                 // Not used for FOPEN
+        .sram_buffer = NULL,             // Not used for FOPEN
+        .task = xTaskGetCurrentTaskHandle()
+    };
+    _external_memory->submit_request(req);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Wait until the file has been loaded
+
+    uint32_t file_size = req.frame_index;
+    if (file_size == 0) return NULL;
+
+    // File LRU
+    uint16_t file_id;
+    if(queue_is_full(&file_lru_fifo)) {
+        // Remove the old file from the loaded page
+        queue_try_remove(&file_lru_fifo, &file_id);
+
+        VirtualFile file_to_remove = file_data[file_id];
+
+        // Flush the file data if it was open as write.
+        if(file_to_remove.flags != "r") {
+            MemoryRequest write_req = {
+                .op = MemoryOp::FWRITE,
+                .v_page_id = (uint32_t)file,                    // Cast pointer to 32-bit integer
+                .frame_index = PAGE_SIZE,                       // Size of the buffer
+                .sram_buffer = file_frames[file_id],            // Pointer to the buffer
+                .task = xTaskGetCurrentTaskHandle()
+            };
+            _external_memory->submit_request(write_req);
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Wait until the file has been written
+        }
+    } else {
+        file_id = file_lru_fifo.element_count + 1;
+    }
+
+    queue_try_add(&file_lru_fifo, &file_id);
+
+    // Load the new file
+    file_data[file_id].file_hash = file_hash;
+    file_data[file_id].descriptor = file_id;
+    file_data[file_id].offset = req.v_page_id;
+    file_data[file_id].size = req.frame_index;
+    file_data[file_id].flags = flags;
+
+    return &(file_data[file_id]);
+}
+
+size_t VMM::file_write(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile *__restrict__ stream)
+{
+    if(size == 0 || count == 0) {
+        return 0;
+    }
+
+    size_t total_bytes = size * count;
+
+    size_t current_byte=0;
+    for(current_byte; current_byte < total_bytes - VIRTUAL_FILE_PAGE_SIZE; current_byte += VIRTUAL_FILE_PAGE_SIZE) {
+
+        size_t chunk_size = MIN(total_bytes - current_byte, VIRTUAL_FILE_PAGE_SIZE);
+
+        // Copy the data from the user's buffer into the dedicated memory page
+        memcpy(file_frames[stream->descriptor], buffer + current_byte, chunk_size);
+
+        MemoryRequest req = {
+            MemoryOp::FWRITE,
+            stream->offset,                    // File offset to start writing from
+            chunk_size,                       // Total bytes to write
+            file_frames[stream->descriptor],   // Frame to write
+            NULL
+        };
+        _external_memory->submit_request(req);
+    }
+
+    memcpy(file_frames[stream->descriptor], buffer + current_byte, total_bytes - current_byte);
+    MemoryRequest req = {
+        MemoryOp::FWRITE,
+        stream->offset,                     // File offset to start writing from
+        total_bytes - current_byte,         // Total bytes to write
+        file_frames[stream->descriptor],    // Frame to write
+        xTaskGetCurrentTaskHandle()
+    };
+    _external_memory->submit_request(req);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until all the writing is complete
+
+    stream->offset += total_bytes;
+
+    return count;
+}
+
+size_t VMM::file_read(void *ptr, size_t size, size_t count, VirtualFile *stream)
+{
+    if(size == 0 || count == 0) {
+        return 0;
+    }
+
+    size_t total_bytes = size * count;
+
+    size_t current_byte=0;
+    for(current_byte; current_byte < total_bytes; current_byte += VIRTUAL_FILE_PAGE_SIZE) {
+
+        size_t chunk_size = MIN(total_bytes - current_byte, VIRTUAL_FILE_PAGE_SIZE);
+
+        MemoryRequest req = {
+            MemoryOp::FREAD,
+            stream->offset,                    // File offset to start writing from
+            chunk_size,                       // Total bytes to write
+            file_frames[stream->descriptor],   // Frame to write
+            xTaskGetCurrentTaskHandle()
+        };
+        _external_memory->submit_request(req);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until the next frame is loaded is complete
+
+        // Copy the data from the file frame into the given buffer
+        memcpy(ptr + current_byte, file_frames[stream->descriptor], chunk_size);
+
+        stream->offset += chunk_size;
+    }
+
+    return count;
+}
+
+
+int VMM::file_close(VirtualFile *stream) {
+    if (stream == nullptr) {
+        return -1;
+    }
+
+    // Write dirty frame if the page is in a write mode
+    if (strchr(stream->flags, 'w') || strchr(stream->flags, 'a') || strchr(stream->flags, '+')) {
+        MemoryRequest req = {
+            MemoryOp::FWRITE,
+            stream->offset,                     // File offset to write to
+            VIRTUAL_FILE_PAGE_SIZE,             // Total bytes to write
+            file_frames[stream->descriptor],    // Frame to write
+            xTaskGetCurrentTaskHandle()
+        };
+        _external_memory->submit_request(req);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+
+    // Remove access to the old file frame
+    uint16_t region_frame[2];
+
+    mpu_enabled.clear(region_frame[1]);
+
+    queue_try_remove(&mpu_region_frame_fifo, region_frame);
+
+    set_addr_nexec(region_frame[0], (uint32_t)file_frames[stream->descriptor], (uint32_t)file_frames[stream->descriptor] + VIRTUAL_FILE_PAGE_SIZE, false);
+
+    return 0;   // 100% Success Rate :)
+}
+
+void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
+{
+    // Check if the file is resident.
+    uint8_t* file_frame = file_frames[file_id.descriptor];
+
     // If the address is in bounds then it is already loaded
-    if(!(file_page_frame_base <= file_offset && file_offset <= file_page_frame_base + PAGE_SIZE)) {
+    if(!(file_id.offset <= file_offset && file_offset <= file_id.offset + PAGE_SIZE)) {
         return;
     } else {
         MemoryRequest req = {
@@ -287,8 +460,9 @@ void VMM::file_access(uint32_t file_offset)
             xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
-        xTaskNotifyGive(NULL);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;
     }
+
     // If the queue is full then there are no available MPU regions. We have to replace one of them.
     uint16_t region_frame[2];
 
@@ -305,5 +479,5 @@ void VMM::file_access(uint32_t file_offset)
     queue_try_add(&mpu_region_frame_fifo, region_frame);
 
     // Enable access to the file
-    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + PAGE_SIZE, true);
+    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + VIRTUAL_FILE_PAGE_SIZE, true);
 }

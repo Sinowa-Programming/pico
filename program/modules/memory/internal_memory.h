@@ -14,8 +14,9 @@ class ExternalMemory;
 
 class VMM {
     // File
-    uint32_t file_page_frame_base;      // The file offset base that is loaded.
-    uint8_t file_frame[PAGE_SIZE];  // The physical frame location of a file
+    queue_t file_lru_fifo;    // Simple LRU to evict an unused file. Each entry is index(file_data)
+    VirtualFile file_data[MAX_VIRTUAL_FILES];
+    uint8_t file_frames[MAX_VIRTUAL_FILES][PAGE_SIZE];      // The physical frame location of a file
 
     // Translation Tables
     int16_t page_to_frame[NUM_PAGES];                       // Virtual Page ID -> physical sram frame idx
@@ -94,11 +95,15 @@ public:
     void *alloc(size_t mem_size);
     /* ========================= */
 
-    /* === File Access Functions === */
-    uint8_t* get_file_frame() { return file_frame; };
+    /* === File Functions === */
+    VirtualFile* file_open(const char *file, char* flags);
+    size_t file_write( const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream );
+    size_t file_read( void * ptr, size_t size, size_t count, VirtualFile * stream );
+    int file_close( VirtualFile * stream );
 
-    void file_access(uint32_t file_offset);
+    uint8_t* get_file_frame(VirtualFile &file_id) { return file_frames[file_id.descriptor]; };
 
+    void file_access(VirtualFile &file_id, uint32_t file_offset);
 };
 
 #endif  // INTERNAL_MEMORY_H
