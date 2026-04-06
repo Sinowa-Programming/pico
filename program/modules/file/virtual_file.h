@@ -4,7 +4,7 @@
 #include "pico/stdlib.h"
 
 // Define a 16MB window for the bitstream(s)
-#define MAX_VIRTUAL_FILES   2
+#define MAX_VIRTUAL_FILES   4
 #define VIRTUAL_FILE_BASE   0x80000000
 #define VIRTUAL_FILE_END    0x81000000
 #define VIRTUAL_FILE_PAGE_SIZE 4096  // 4kB
@@ -22,8 +22,9 @@ typedef struct {
     uint32_t file_hash;
     int descriptor;
     uint32_t offset;
-    uint32_t size;
     char* flags;
+    // The remote/external file id returned by the host-side file-open command
+    uint32_t remote_id;
 } VirtualFile;
 
 
@@ -33,7 +34,7 @@ typedef struct {
 inline static uint32_t hash(const char *file);
 
 
-VirtualFile* __wrap__fopen(const char *file, int flags, ...);
+VirtualFile* __wrap__fopen(const char *file, const char* mode);
 int __wrap__fclose(void* ptr);
 size_t __wrap__fwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream);
 size_t __wrap__fread( void * ptr, size_t size, size_t count, VirtualFile * stream );

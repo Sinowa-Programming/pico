@@ -28,10 +28,10 @@ void ExternalMemory::run() {
                         2,  // The two bytes of the page id to read
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t* )&(active_req->v_page_id), 4);
-
-                    // Sleep until the request is done
+                    send_chunked((uint8_t*)&(active_req->arg1), 4);
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                    // Notify internal memory that the page has been provided via rx_buffer
+                    internal_memory->notify_completion(active_req);
                     break;
                 }
 
@@ -42,8 +42,8 @@ void ExternalMemory::run() {
                         PAGE_SIZE + 2,  // The actual data + the two bytes of the page id to write
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t* )&(active_req->v_page_id), 4);
-                    send_chunked(active_req->sram_buffer, 4096);
+                    send_chunked((uint8_t*)&(active_req->arg1), 4);
+                    send_chunked(active_req->arg3, PAGE_SIZE);
                     break;
                 }
 
@@ -54,18 +54,19 @@ void ExternalMemory::run() {
                         sizeof(size_t),    // Tell the swap system the size of the block we are requesting
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t*)&(active_req->frame_index), sizeof(size_t));
+                    send_chunked((uint8_t*)&(active_req->arg2), sizeof(size_t));
 
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-                    active_req->v_page_id = (uint32_t)rx_buffer / PAGE_SIZE;
+                    // Get the remote file id
+                    active_req->arg2 = (uint32_t)rx_buffer / PAGE_SIZE;
                     internal_memory->notify_completion(active_req);
                     break;
                 }
 
                 case MemoryOp::FOPEN: {
-                    char* filename = (char *)(active_req->v_page_id);
+                    char* filename = (char *)(active_req->arg1);
                     CommunicationHeader header = {
                         MCU_ID,
                         FILE_OPEN,
@@ -76,23 +77,28 @@ void ExternalMemory::run() {
 
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                    break;
                 }
                 case MemoryOp::FCLOSE: {
+                    uint32_t remote_file_id = active_req->;
                     CommunicationHeader header = {
                         MCU_ID,
                         FILE_CLOSE,
                         0
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&remote_file_id, sizeof(remote_file_id));
+                    break;
                 }
                 case MemoryOp::FREAD: {
                     // Data to be sent over
                     struct __attribute__((__packed__)) {
                         uint32_t file_offset;
                         uint32_t data_length;
+                        uint32_t remote_file_id;
                     } file_read_header;
-                    file_read_header.file_offset = active_req->v_page_id;
-                    file_read_header.data_length = active_req->frame_index;
+                    file_read_header.file_offset = active_req->arg1;
+                    file_read_header.data_length = active_req->arg2;
 
                     CommunicationHeader header = {
                         MCU_ID,
@@ -104,15 +110,17 @@ void ExternalMemory::run() {
 
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                    break;
                 }
                 case MemoryOp::FWRITE: {
                     // Data to be sent over
                     struct __attribute__((__packed__)) {
                         uint32_t file_offset;
                         uint32_t data_length;
+                        uint32_t remote_file_id;
                     } file_write_header;
-                    file_write_header.file_offset = active_req->v_page_id;
-                    file_write_header.data_length = active_req->frame_index;
+                    file_write_header.file_offset = active_req->arg1;
+                    file_write_header.data_length = active_req->arg2;
 
                     CommunicationHeader header = {
                         MCU_ID,
@@ -122,6 +130,7 @@ void ExternalMemory::run() {
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&file_write_header, sizeof(file_write_header));
                     send_chunked((uint8_t *)VIRTUAL_FILE_BASE + file_write_header.file_offset, PAGE_SIZE);
+                    break;
                 }
             }
 
@@ -147,7 +156,7 @@ void ExternalMemory::submit_request(MemoryRequest &req) {
 }
 
 uint8_t* ExternalMemory::get_memory_request_sram_buffer() {
-    return active_req->sram_buffer;
+    return active_req->arg3;
 }
 
 void ExternalMemory::notify_transfer_completion(void *buffer) {

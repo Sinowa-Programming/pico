@@ -53,10 +53,18 @@ uint8_t VMM::get_available_frame() {
     return frame;
 }
 
-void VMM::update_mpu_access(uint16_t frame_to_enable)
+void VMM::update_mpu_access(uint16_t frame_to_enable, bool executable)
 {
-    // If the MPU has already enabled access don't do anything. This shouldn't get hit.
-    if(!mpu_enabled.get(frame_to_enable)) {
+    // If the MPU has already enabled access, do nothing.
+    if (mpu_enabled.get(frame_to_enable)) {
+        return;
+    }
+
+    // If this frame is an executable, use MPU region 0 directly.
+    if (executable) {
+        uint32_t base_addr = (uint32_t)sram_frames[frame_to_enable];
+        set_addr_nexec(0, base_addr, base_addr + PAGE_SIZE, true);
+        mpu_enabled.set(frame_to_enable);
         return;
     }
 
@@ -65,12 +73,11 @@ void VMM::update_mpu_access(uint16_t frame_to_enable)
 
     if(queue_is_full(&mpu_region_frame_fifo)) {
         queue_try_remove(&mpu_region_frame_fifo, region_frame);
+        mpu_enabled.clear(region_frame[1]);
     } else {
         // Add a new region to the list
         region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
     }
-
-    mpu_enabled.clear(region_frame[1]);
 
     // Replace the old region number's frame with the new frame
     region_frame[1] = frame_to_enable;
@@ -185,17 +192,17 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 
     // Update state: Page is now officially resident
     if (finished_req->op == MemoryOp::READ) {
-        is_resident.set(finished_req->v_page_id);
-        page_to_frame[finished_req->v_page_id] = finished_req->frame_index;
-        frame_to_page[finished_req->frame_index] = finished_req->v_page_id;
+        is_resident.set(finished_req->arg1);
+        page_to_frame[finished_req->arg1] = finished_req->arg2;
+        frame_to_page[finished_req->arg2] = finished_req->arg1;
 
         // Move to MRU (front of list)
-        update_lru_access(finished_req->frame_index);
+        update_lru_access(finished_req->arg2);
 
         vTaskResume(finished_req->task);
     }
     else if (finished_req->op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
-        clear_page(finished_req->v_page_id, false);
+        clear_page(finished_req->arg1, false);
     } else if (finished_req->op == MemoryOp::ALLOC) {
         // There should be space if it reaches this point
         xTaskNotifyGive(finished_req->task);
@@ -229,7 +236,7 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         // The memory request has been fulfilled.
-        frame_idx = req.frame_index;
+        frame_idx = req.arg2;
     } else {
         frame_idx = page_to_frame[page_id];
     }
@@ -242,6 +249,8 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     // Enable the frame access
     if(update_mpu) {
         update_mpu_access(frame_idx);
+    } else {
+        update_mpu_access(frame_idx, true);
     }
 }
 
@@ -266,18 +275,18 @@ void *VMM::alloc(size_t mem_size)
     // Send the request.
     MemoryRequest req = {
         MemoryOp::ALLOC,
-        0,
-        mem_size,
-        0,
-        cur_task
+        0,          // arg1
+        mem_size,   // arg2: requested memory size
+        0,          // arg3
+        cur_task    // active task
     };
     _external_memory->submit_request(req);
     xTaskNotifyGive(cur_task);
 
-    return (void*)(VIRTUAL_MEMORY_BASE + (req.v_page_id * PAGE_SIZE));  // The data will always be page aligned.
+    return (void*)(VIRTUAL_MEMORY_BASE + (req.arg1 * PAGE_SIZE));  // The data will always be page aligned.
 }
 
-VirtualFile* VMM::file_open(const char *file, char* flags)
+VirtualFile* VMM::file_open(const char *file, char* mode)
 {
     uint32_t file_hash = hash(file);
 
@@ -291,15 +300,15 @@ VirtualFile* VMM::file_open(const char *file, char* flags)
     // Load the file externally
     MemoryRequest req = {
         .op = MemoryOp::FOPEN,
-        .v_page_id = (uint32_t)file, // Cast pointer to 32-bit integer
-        .frame_index = 0,                 // Not used for FOPEN
-        .sram_buffer = NULL,             // Not used for FOPEN
+        .arg1 = (uint32_t)file, // Filename of file to open
+        .arg2 = 0,              // Will be the remote file id
+        .arg3 = NULL,
         .task = xTaskGetCurrentTaskHandle()
     };
     _external_memory->submit_request(req);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Wait until the file has been loaded
 
-    uint32_t file_size = req.frame_index;
+    uint32_t file_size = req.arg2;
     if (file_size == 0) return NULL;
 
     // File LRU
@@ -314,26 +323,26 @@ VirtualFile* VMM::file_open(const char *file, char* flags)
         if(file_to_remove.flags != "r") {
             MemoryRequest write_req = {
                 .op = MemoryOp::FWRITE,
-                .v_page_id = (uint32_t)file,                    // Cast pointer to 32-bit integer
-                .frame_index = PAGE_SIZE,                       // Size of the buffer
-                .sram_buffer = file_frames[file_id],            // Pointer to the buffer
+                .arg1 = (uint32_t)file,                    // pointer to file remote id
+                .arg2 = PAGE_SIZE,                       // Size of the buffer
+                .arg3 = file_frames[file_id],            // Pointer to the buffer
                 .task = xTaskGetCurrentTaskHandle()
             };
             _external_memory->submit_request(write_req);
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Wait until the file has been written
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the file has been written
         }
     } else {
-        file_id = file_lru_fifo.element_count + 1;
+        file_id = file_lru_fifo.element_count;
     }
 
     queue_try_add(&file_lru_fifo, &file_id);
 
-    // Load the new file
+    // Initialize the local VirtualFile entry
     file_data[file_id].file_hash = file_hash;
     file_data[file_id].descriptor = file_id;
-    file_data[file_id].offset = req.v_page_id;
-    file_data[file_id].size = req.frame_index;
-    file_data[file_id].flags = flags;
+    file_data[file_id].offset = 0;
+    file_data[file_id].flags = mode;
+    file_data[file_id].remote_id = req.arg2;
 
     return &(file_data[file_id]);
 }

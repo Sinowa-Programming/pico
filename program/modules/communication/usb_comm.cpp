@@ -88,22 +88,24 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             external_memory.notify_transfer_completion(&vaddr);
             break;
         }
-        
+        case START_CLIENT: { // This also resets the client if it is actively running
+            uint32_t vaddr = buffer[2] << 16 || buffer[3];
+            vmm.access(vaddr, false);  // Make the new address resident
+            CLIENT::load_frame(vmm.get_physical_ptr(vaddr));    // Set the client to start executing at the address
+            break;
+        }
+
         case HALT_CLIENT:
-            vTaskSuspend(client_task_tcb);
+            vTaskSuspend(CLIENT::client_task_tcb);
             break;
 
         case RESUME_CLIENT:
-            vTaskResume(client_task_tcb);
-            break;
-
-        case START_CLIENT:  // This also resets the client if it is actively running
-            start_client_task();
+            vTaskResume(CLIENT::client_task_tcb);
             break;
 
         case FILE_OPEN: {
-            uint32_t file_size = buffer[2] << 16 || buffer[3];
-            external_memory.notify_transfer_completion(&file_size);
+            uint32_t remote_file_id = buffer[2] << 16 || buffer[3];
+            external_memory.notify_transfer_completion(&remote_file_id);
             break;
         }
 

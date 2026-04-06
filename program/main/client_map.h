@@ -6,17 +6,19 @@
 
 #define CLIENT_CORE_AFFINITY  (1U << 1) // Core 1
 #define CLIENT_PRIORITY         (configMAX_PRIORITIES - 1) // High priority recommended
-// Calculate size in WORDS (250KB = 256,000 bytes / 4 = 64,000 words)
-const int CLIENT_TASK_STACK_SIZE = 64000;
 
-typedef void (*main_func_t)(void);
+namespace CLIENT {
+    // Calculate size in WORDS (100KB = 100,000 bytes / 4 = 25,000 words)
+    const int CLIENT_TASK_STACK_SIZE = 25000;
 
-extern TaskHandle_t client_task_tcb;
+    typedef void (*main_func_t)(void);
 
-void start_client_task();
+    extern TaskHandle_t client_task_tcb;
 
-void load_frame(uintptr_t addr, main_func_t &client_main);
+    void start_client_task();
 
-void client_task(void* pvParameters);    // The task that is running on the PAL
+    void load_frame(uintptr_t physical_addr);
 
+    void client_task(void* pvParameters);    // The task that is running on the PAL
+}
 #endif // CLIENT_MAP_H

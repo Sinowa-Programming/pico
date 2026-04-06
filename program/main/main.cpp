@@ -24,7 +24,7 @@ int main()
     vmm.add_external_memory(&external_memory);
 
     // Start the client process
-    start_client_task();
+    CLIENT::start_client_task();
 
     // Start the processor
     vTaskStartScheduler();

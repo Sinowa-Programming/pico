@@ -1,13 +1,12 @@
 
 file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_LIST_DIR}/*.c"
     "${CMAKE_CURRENT_LIST_DIR}/main/*.c"
     "${CMAKE_CURRENT_LIST_DIR}/main/*.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/modules/*.c"
     "${CMAKE_CURRENT_LIST_DIR}/modules/*.cpp"
 )
 
-add_executable(${PROJECT_NAME} ${APP_SOURCES})
+add_executable(${PROJECT_NAME} ${APP_SOURCES} "${CMAKE_CURRENT_LIST_DIR}/usb_descriptors.c")
 
 # Custom Memory for Heap
 pico_set_linker_script(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/program/custom_pico_mem.ld)
@@ -52,14 +51,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     # cmsis headers
     cmsis_core
 
-    Client_program
+    # Client_program
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE
     "-Wl,--whole-archive"
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Client_program)
+# target_link_libraries(${PROJECT_NAME} PRIVATE Client_program)
 
 target_link_options(${PROJECT_NAME} PRIVATE
     "-Wl,--no-whole-archive"

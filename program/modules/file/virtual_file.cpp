@@ -8,8 +8,8 @@
 #include "memory.hpp"
 
 // Return a pointer to the Virtual file on success.
-VirtualFile* __wrap__fopen(const char *file, int flags, ...) {
-    return vmm.file_open(file, flags);
+VirtualFile* __wrap__fopen(const char *file, const char* mode) {
+    return vmm.file_open(file, (char *)&mode);
 }
 
 int __wrap__fclose(void* ptr) {

@@ -22,5 +22,5 @@ include(FreeRTOS_Kernel_import.cmake)
 
 message("FreeRTOS Kernel setup")
 
-add_subdirectory(ported_programs/dav1d_pico_interface)
+# add_subdirectory(ported_programs/dav1d_pico_interface)
 add_subdirectory(program)

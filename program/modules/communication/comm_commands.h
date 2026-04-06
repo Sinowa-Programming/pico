@@ -29,9 +29,13 @@ struct __attribute__((packed)) CommunicationHeader {
 };
 
 enum {
-    // Client commands( Commands for the program running though the PAL ).
+    /* Client commands( Commands for the program running though the PAL ). */
+
+    // Sets the client to a uint32_t address
     START_CLIENT = 0x1,
+    // Pauses the client task in FreeRTOS
     HALT_CLIENT = 0X2,
+    // Unpauses the client task in FreeRTOS
     RESUME_CLIENT = 0X3,
 
     FILE_OPEN = 0x4,    // Get the file size.

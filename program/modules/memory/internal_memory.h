@@ -7,6 +7,7 @@
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
 #include "virtual_file.h"
+#include "mpu_config.h"
 
 extern inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
@@ -42,7 +43,7 @@ class VMM {
     /* Only MPU Regions 1-7 are used by the access code. Region 0 is for the current frame the program counter is in.*/
     queue_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
     FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.
-    void update_mpu_access(uint16_t frame_to_enable);
+    void update_mpu_access(uint16_t frame_to_enable, bool executable = false);
     /* =========== */
 
     // ==== LRU code ====
@@ -75,7 +76,7 @@ public:
 
     /// @brief Loads the given address into memory and enables access to it. This is a blocking operation currently. The task will be suspended until it is finished.
     /// @param virtual_addr The virtual memory address of the access
-    /// @param update_mpu Tells the MPU to enable access to the newly loaded frame using regions 1 - 7.
+    /// @param update_mpu Tells the MPU to enable access to the newly loaded frame using regions 1 - 7. Will update region 0 if false.
     /// @return The frame idx that contains the data.
     void access(uint32_t virtual_addr, bool update_mpu = true);
 
@@ -96,7 +97,7 @@ public:
     /* ========================= */
 
     /* === File Functions === */
-    VirtualFile* file_open(const char *file, char* flags);
+    VirtualFile* file_open(const char *file, char* mode);
     size_t file_write( const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream );
     size_t file_read( void * ptr, size_t size, size_t count, VirtualFile * stream );
     int file_close( VirtualFile * stream );

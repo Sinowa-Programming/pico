@@ -37,7 +37,7 @@ struct MemoryRequest {
     FOPEN: Pointer to the file name
     FREAD | FWRITE: The file offset
     */
-    uint32_t v_page_id;
+    uint32_t arg1; // Generic argument 1 (used for virtual page id, file offset, or filename pointer)
 
     /*
     READ: It is overwritten
@@ -45,13 +45,13 @@ struct MemoryRequest {
     FOPEN: Returned file size
     FREAD | FWRITE: The size of the area to load/save.
     */
-    uint32_t frame_index;
+    uint32_t arg2; // Generic argument 2 (used for returned frame index, file size, or remote file id)
 
     /*
     READ | WRITE | FWRITE: Pointer to the page in memory
     FREAD: Not used as file buffer is statically allocated.
     */
-    uint8_t* sram_buffer;
+    uint8_t* arg3; // Generic pointer (used for sram buffer or other pointers)
 
     TaskHandle_t task;      // The task that owns the request
 };

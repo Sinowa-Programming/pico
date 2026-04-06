@@ -5,8 +5,12 @@
 #include "hardware/sync.h"
 #include "RP2350.h"
 
-#include "/workspaces/pico/ported_programs/dav1d_pico_interface/dav1dplay.h"
-TaskHandle_t client_task_tcb;
+// Limit visibility to only this file
+namespace {
+    CLIENT::main_func_t client_main = nullptr;
+}
+
+TaskHandle_t CLIENT::client_task_tcb = NULL;
 
 // Spin lock program when nothing is happening.
 __attribute__((noinline, noclone)) void default_func(void) {
@@ -18,7 +22,7 @@ __attribute__((noinline, noclone)) void default_func_end(void) {
     __asm volatile("nop"); // Prevent the compiler from optimizing this away
 }
 
-void start_client_task() {
+void CLIENT::start_client_task() {
     uintptr_t start_addr = (uintptr_t)default_func & ~1UL;   // Remove 1 LSB to get actual address
     uintptr_t end_addr   = (uintptr_t)default_func_end & ~1UL;
 
@@ -41,33 +45,21 @@ void start_client_task() {
     vTaskCoreAffinitySet(client_task_tcb, CLIENT_CORE_AFFINITY);
 }
 
-void load_frame(uintptr_t addr, main_func_t &client_main) {
+void CLIENT::load_frame(uintptr_t physical_addr) {
     __DSB();
     __ISB();
 
     // Indicate thumb mode for arm execution( not having this leads to a hard fault )
-    uintptr_t thumb_address = addr | 1;
-
-    // Set the region to allow execution of the function
-    set_addr_exec(0, thumb_address, thumb_address + PAGE_SIZE, true);
+    uintptr_t thumb_address = physical_addr | 1;
 
     // Cast the address to a function pointer
     client_main = (main_func_t)thumb_address;
 }
 
-void client_task(void* pvParameters) {
-    main_func_t client_main;    // Create the function to load
-
+void CLIENT::client_task(void* pvParameters) {
     // Load frame 0 busy loop
-    // load_frame(*(vmm.sram_frames[0]), client_main);
+    load_frame(*(vmm.sram_frames[0]));
 
-    // client_main();  // execute the code
-    char *argv[] = {
-        "/home/sinowa/Programming/device_dev/Pico Array/pico/",  // The current working directory of the program
-        "-i",    // Input file command
-        "test-420-8.ivf"    // The test file to decode
-    };
-    dav1dplay_main(3, argv);
-
+    client_main();  // execute the code
     vTaskDelete(NULL);
 }
