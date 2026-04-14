@@ -2,6 +2,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "debug_led.h"
+
 void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 {
     // If the page is dirty, you can't remove it yet, write the page to external memory and handle it when it has been copied out
@@ -151,8 +153,8 @@ void VMM::run()
                 clear_page(p_id, false);
             }
         }
+        xSemaphoreGive(vmmMutex);
     }
-    xSemaphoreGive(vmmMutex);
 }
 
 VMM::VMM() {
@@ -237,6 +239,7 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
         frame_idx = req.arg2;
     } else {
         frame_idx = page_to_frame[page_id];
+        ws2812_send_pixel(0, 255, 255); // Purple
     }
     update_lru_access(frame_idx);
 
@@ -259,7 +262,8 @@ uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
 
     // Assumes page is already resident (call access() first to ensure it)
     int16_t frame_idx = page_to_frame[page_id];
-    return sram_frames[frame_idx][offset];
+    // Return the address within the physical SRAM frame for the given virtual address
+    return (uintptr_t)(sram_frames[frame_idx] + offset);
 }
 
 inline uintptr_t VMM::get_vaddr_from_frame(uint32_t frame_id)

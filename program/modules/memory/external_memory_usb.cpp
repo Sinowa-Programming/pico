@@ -5,6 +5,8 @@
 #include "internal_memory.h"
 #include "comm_commands.h"
 
+#include "debug_led.h"
+
 #ifdef USB_COMM
 
 static void transmit_page(uint8_t* page_data, uint32_t page_index);
@@ -15,12 +17,12 @@ void ExternalMemory::setup_dma() {
 }
 
 void ExternalMemory::run() {
-    active_req;
     while (true) {
         // Wait for a request from the VMM
-        if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY)) {
+        if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY) == pdTRUE) {
             switch(active_req->op) {
                 case MemoryOp::READ: {
+                    ws2812_send_pixel(191, 0, 255); // Purple
                     // The page is not in memory. Load it.
                     CommunicationHeader header = {
                         MCU_ID,
@@ -29,6 +31,7 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req->arg1), 4);
+                    ws2812_send_pixel(0, 255, 0); // Green
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     // Notify internal memory that the page has been provided via rx_buffer
                     internal_memory->notify_completion(active_req);
