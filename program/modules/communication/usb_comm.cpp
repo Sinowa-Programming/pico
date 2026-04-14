@@ -1,5 +1,9 @@
 #include "usb_comm.h"
 
+// Temportaily for printf
+#include <stdio.h>
+#include <pico/stdlib.h>
+
 #include "comm_commands.h"
 #include "pal.h"
 #include "memory.hpp"   // For the page size
@@ -28,6 +32,7 @@ void usb_device_task(void *param) {
     while (1) {
         // tud_task() is now blocking because of CFG_TUSB_OS
         tud_task();
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -84,12 +89,15 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
 
         case PAGE_TABLE_ALLOC: {
-            uint32_t vaddr = buffer[2] << 16 || buffer[3];
+            uint32_t vaddr;
+            memcpy(&vaddr, buffer + 2, sizeof(uint32_t));
             external_memory.notify_transfer_completion(&vaddr);
             break;
         }
         case START_CLIENT: { // This also resets the client if it is actively running
-            uint32_t vaddr = buffer[2] << 16 || buffer[3];
+            uint32_t vaddr;
+            memcpy(&vaddr, buffer + 2, sizeof(uint32_t));
+            printf("Got address: 0x%08X\n", vaddr);
             vmm.access(vaddr, false);  // Make the new address resident
             CLIENT::load_frame(vmm.get_physical_ptr(vaddr));    // Set the client to start executing at the address
             break;
@@ -104,7 +112,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
 
         case FILE_OPEN: {
-            uint32_t remote_file_id = buffer[2] << 16 || buffer[3];
+            uint32_t remote_file_id;
+            memcpy(&remote_file_id, buffer + 2, sizeof(uint32_t));
             external_memory.notify_transfer_completion(&remote_file_id);
             break;
         }

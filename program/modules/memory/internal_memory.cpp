@@ -9,10 +9,9 @@ void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
 
     if(is_dirty.get(page_id)) {
         MemoryRequest req = {
-            MemoryOp::WRITE,
-            page_id,     // The virtual page being moved
-            frame_to_page[frame_idx],    // The physical SRAM frame used
-            sram_frames[page_to_frame[page_id]]
+            .op = MemoryOp::WRITE,
+            .arg1 = frame_to_page[frame_idx],               // The virtual page being moved
+            .buffer = sram_frames[page_to_frame[page_id]]   // The sram frame
         };
         _external_memory->submit_request(req);
         if(block_until_cleared) {
@@ -224,11 +223,10 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     if (!is_resident.get(page_id)) {
         // Suspend the task and send the write request
         MemoryRequest req = {
-            MemoryOp::READ,
-            page_id,     // The virtual page being loaded in
-            0,    // No frame is being touched this time
-            sram_frames[page_to_frame[page_id]],
-            xTaskGetCurrentTaskHandle()
+            .op = MemoryOp::READ,
+            .arg1 = page_id,     // The virtual page being loaded in
+            .buffer = sram_frames[page_to_frame[page_id]],
+            .task = xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
 
@@ -275,10 +273,8 @@ void *VMM::alloc(size_t mem_size)
     // Send the request.
     MemoryRequest req = {
         MemoryOp::ALLOC,
-        0,          // arg1
-        mem_size,   // arg2: requested memory size
-        0,          // arg3
-        cur_task    // active task
+        .arg2 = mem_size,   // arg2: requested memory size
+        .task = cur_task    // active task
     };
     _external_memory->submit_request(req);
     xTaskNotifyGive(cur_task);
@@ -301,8 +297,6 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
     MemoryRequest req = {
         .op = MemoryOp::FOPEN,
         .arg1 = (uint32_t)file, // Filename of file to open
-        .arg2 = 0,              // Will be the remote file id
-        .arg3 = NULL,
         .task = xTaskGetCurrentTaskHandle()
     };
     _external_memory->submit_request(req);
@@ -323,9 +317,10 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
         if(file_to_remove.flags != "r") {
             MemoryRequest write_req = {
                 .op = MemoryOp::FWRITE,
-                .arg1 = (uint32_t)file,                    // pointer to file remote id
-                .arg2 = PAGE_SIZE,                       // Size of the buffer
-                .arg3 = file_frames[file_id],            // Pointer to the buffer
+                .arg1 = file_to_remove.offset,      // File offset
+                .arg2 = PAGE_SIZE,                  // Size of the buffer
+                .arg3 = file_to_remove.remote_id,   // File id on the server
+                .buffer = file_frames[file_id],     // Pointer to the buffer
                 .task = xTaskGetCurrentTaskHandle()
             };
             _external_memory->submit_request(write_req);
@@ -342,7 +337,7 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
     file_data[file_id].descriptor = file_id;
     file_data[file_id].offset = 0;
     file_data[file_id].flags = mode;
-    file_data[file_id].remote_id = req.arg2;
+    file_data[file_id].remote_id = req.arg3;
 
     return &(file_data[file_id]);
 }
@@ -364,22 +359,23 @@ size_t VMM::file_write(const void* __restrict__ buffer, size_t size, size_t coun
         memcpy(file_frames[stream->descriptor], buffer + current_byte, chunk_size);
 
         MemoryRequest req = {
-            MemoryOp::FWRITE,
-            stream->offset,                    // File offset to start writing from
-            chunk_size,                       // Total bytes to write
-            file_frames[stream->descriptor],   // Frame to write
-            NULL
+            .op = MemoryOp::FWRITE,
+            .arg1 = stream->offset,                     // File offset to start writing from
+            .arg2 = chunk_size,                         // Total bytes to write
+            .arg3 = stream->remote_id,                  // File id on the server
+            .buffer = file_frames[stream->descriptor],  // Frame to write
         };
         _external_memory->submit_request(req);
     }
 
     memcpy(file_frames[stream->descriptor], buffer + current_byte, total_bytes - current_byte);
     MemoryRequest req = {
-        MemoryOp::FWRITE,
-        stream->offset,                     // File offset to start writing from
-        total_bytes - current_byte,         // Total bytes to write
-        file_frames[stream->descriptor],    // Frame to write
-        xTaskGetCurrentTaskHandle()
+        .op = MemoryOp::FWRITE,
+        .arg1 = stream->offset,                     // File offset to start writing from
+        .arg2 = total_bytes - current_byte,         // Total bytes to write
+        .arg3 = stream->remote_id,
+        .buffer = file_frames[stream->descriptor],  // Frame to write
+        .task = xTaskGetCurrentTaskHandle()
     };
     _external_memory->submit_request(req);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until all the writing is complete
@@ -403,11 +399,12 @@ size_t VMM::file_read(void *ptr, size_t size, size_t count, VirtualFile *stream)
         size_t chunk_size = MIN(total_bytes - current_byte, VIRTUAL_FILE_PAGE_SIZE);
 
         MemoryRequest req = {
-            MemoryOp::FREAD,
-            stream->offset,                    // File offset to start writing from
-            chunk_size,                       // Total bytes to write
-            file_frames[stream->descriptor],   // Frame to write
-            xTaskGetCurrentTaskHandle()
+            .op = MemoryOp::FREAD,
+            .arg1 = stream->offset,                     // File offset to start writing from
+            .arg2 = chunk_size,                         // Total bytes to write
+            .arg3 = stream->remote_id,                  // The file to read
+            .buffer = file_frames[stream->descriptor],  // Frame to write
+            .task = xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until the next frame is loaded is complete
@@ -430,15 +427,24 @@ int VMM::file_close(VirtualFile *stream) {
     // Write dirty frame if the page is in a write mode
     if (strchr(stream->flags, 'w') || strchr(stream->flags, 'a') || strchr(stream->flags, '+')) {
         MemoryRequest req = {
-            MemoryOp::FWRITE,
-            stream->offset,                     // File offset to write to
-            VIRTUAL_FILE_PAGE_SIZE,             // Total bytes to write
-            file_frames[stream->descriptor],    // Frame to write
-            xTaskGetCurrentTaskHandle()
+            .op = MemoryOp::FWRITE,
+            .arg1 = stream->offset,                     // File offset to write to
+            .arg2 = VIRTUAL_FILE_PAGE_SIZE,             // Total bytes to write
+            .arg3 = stream->remote_id,                  // File id on remote server
+            .buffer = file_frames[stream->descriptor],  // Frame to write
+            .task = xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
+
+    // Tell the server that the device has closed the file
+    MemoryRequest req = {
+        .op = MemoryOp::FCLOSE,
+        .arg3 = stream->remote_id,                  // File id on remote server
+        .task = xTaskGetCurrentTaskHandle()
+    };
+    _external_memory->submit_request(req);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
     // Remove access to the old file frame
     uint16_t region_frame[2];
@@ -462,11 +468,12 @@ void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
         return;
     } else {
         MemoryRequest req = {
-            MemoryOp::FREAD,
-            file_offset,
-            PAGE_SIZE,
-            file_frame,
-            xTaskGetCurrentTaskHandle()
+            .op = MemoryOp::FREAD,
+            .arg1 = file_offset,
+            .arg2 = PAGE_SIZE,
+            .arg3 = file_id.remote_id,
+            .buffer = file_frame,
+            .task = xTaskGetCurrentTaskHandle()
         };
         _external_memory->submit_request(req);
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;

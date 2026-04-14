@@ -15,17 +15,23 @@ VMM vmm;
 
 int main()
 {
+    stdio_init_all();
+    
     // Setup the external communication
     usb_comm_setup();
 
+    printf("Usb setup.");
     // Setup the memory managers
     vmm = VMM();
     external_memory = ExternalMemory(&vmm, (uint32_t)10);
     vmm.add_external_memory(&external_memory);
 
+    printf("Memory Managers setup.");
+
     // Start the client process
     CLIENT::start_client_task();
 
+    printf("Client Program started.");
     // Start the processor
     vTaskStartScheduler();
     return 0;

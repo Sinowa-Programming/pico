@@ -38,8 +38,11 @@ extern "C" {
 // DFU RT does not required for this project
 #define CFG_TUD_DFU_RT           0
 
-// CDC class is not needed
-#define CFG_TUD_CDC              0
+// Used by pico_stdio_usb
+#define CFG_TUD_CDC_EP_BUFSIZE  64          // 64 is the max packet size for full speed
+#define CFG_TUD_CDC_RX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
+#define CFG_TUD_CDC_TX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
+#define CFG_TUD_CDC              1
 
 // MSC class is not needed
 #define CFG_TUD_MSC              0

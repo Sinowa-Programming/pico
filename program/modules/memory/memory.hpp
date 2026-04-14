@@ -33,7 +33,7 @@ struct MemoryRequest {
     MemoryOp op;
     /*
     READ | WRITE: The virtual page being operated on.
-    ALLOC: Or the newly provided page id.
+    ALLOC: Returns the newly provided page id.
     FOPEN: Pointer to the file name
     FREAD | FWRITE: The file offset
     */
@@ -48,11 +48,17 @@ struct MemoryRequest {
     uint32_t arg2; // Generic argument 2 (used for returned frame index, file size, or remote file id)
 
     /*
-    READ | WRITE | FWRITE: Pointer to the page in memory
-    FREAD: Not used as file buffer is statically allocated.
+    FOPEN: Returns Remote File ID
+    FCLOSE: The Remote File ID to close.
+    FREAD: Remote File ID
+    FWRITE: Remote File ID
     */
-    uint8_t* arg3; // Generic pointer (used for sram buffer or other pointers)
+    uint32_t arg3;
 
+    // If the operation is writing to or reading from the buffer then this is used.
+    // Currently used by: READ | WRITE | FWRITE | FREAD
+    // Pointer to the page in memory
+    uint8_t* buffer;
     TaskHandle_t task;      // The task that owns the request
 };
 

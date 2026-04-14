@@ -1,8 +1,5 @@
 #include <sys/types.h>
 
-// #define KOMIHASH_NS_CUSTOM komihash
-#include "komihash/komihash.h"
-
 #include "virtual_file.h"
 #include "pal.h"
 #include "memory.hpp"
@@ -41,7 +38,3 @@ uint32_t file_mpu_fault(uint32_t fault_addr) {
     return 0;   // Not a file.
 }
 
-inline static uint32_t hash(const char *file)
-{
-    return komihash(file, strlen(file), 42);
-}
