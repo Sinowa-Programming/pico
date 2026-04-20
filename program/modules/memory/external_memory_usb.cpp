@@ -4,6 +4,7 @@
 #include "memory.hpp"
 #include "internal_memory.h"
 #include "comm_commands.h"
+#include "usb_comm.h"
 
 #include "debug_led.h"
 
@@ -27,8 +28,12 @@ void ExternalMemory::run() {
                     CommunicationHeader header = {
                         MCU_ID,
                         PAGE_TABLE_READ,
-                        2,  // The two bytes of the page id to read
+                        sizeof(uint32_t),  // Use 4-byte page id to match host
                     };
+                    // Prepare to receive the incoming page data into the request buffer
+                    page_dest_ptr = active_req->buffer;
+                    transfer_offset = 0;
+                    data_receiving = true;
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req->arg1), 4);
                     ws2812_send_pixel(0, 255, 0); // Green
@@ -62,8 +67,20 @@ void ExternalMemory::run() {
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-                    // Get the remote file id
-                    active_req->arg2 = (uint32_t)rx_buffer / PAGE_SIZE;
+                    // rx_buffer points to a 4-byte virtual address returned by host
+                    uint32_t assigned_vaddr = 0;
+                    if (rx_buffer != nullptr) {
+                        memcpy(&assigned_vaddr, rx_buffer, sizeof(uint32_t));
+                    }
+
+                    // Convert to page index and store in arg1 (the caller expects arg1)
+                    uint32_t assigned_page = 0;
+                    if (assigned_vaddr >= VIRTUAL_MEMORY_BASE) {
+                        assigned_page = (assigned_vaddr - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;
+                    } else {
+                        assigned_page = assigned_vaddr;
+                    }
+                    active_req->arg1 = assigned_page;
                     internal_memory->notify_completion(active_req);
                     break;
                 }
