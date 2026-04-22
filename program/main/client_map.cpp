@@ -27,7 +27,7 @@ void CLIENT::start_client_task() {
     uintptr_t end_addr   = (uintptr_t)default_func_end & ~1UL;
 
     // Load the default function into the first frame
-    memcpy(&(vmm.sram_frames[0]), (const void*)start_addr, end_addr - start_addr);
+    memcpy(vmm.sram_frames[0], (const void*)start_addr, end_addr - start_addr);
 
     if(client_task_tcb != NULL) {
         vTaskDelete(client_task_tcb);
@@ -58,7 +58,8 @@ void CLIENT::load_frame(uintptr_t physical_addr) {
 
 void CLIENT::client_task(void* pvParameters) {
     // Load frame 0 busy loop
-    load_frame(*(vmm.sram_frames[0]));
+    // Pass the address of frame 0 (not its first byte)
+    load_frame((uintptr_t)vmm.sram_frames[0]);
 
     client_main();  // execute the code
     vTaskDelete(NULL);

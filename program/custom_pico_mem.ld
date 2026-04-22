@@ -44,19 +44,15 @@ SECTIONS
     /* MODIFIED
         This section holds the client code
     */
-    .vram_section (NOLOAD):
+    .vram_section (INFO):
     {
         . = ALIGN(4);
         _svram_text = .;
         
         /* Grab ALL standard code and data from the pre-compiled archive */
-        *libdav1d.a:(.text .text.*)
-        *libdav1d.a:(.rodata .rodata.*)
-        *libdav1d.a:(.data .data.*)
-
-        *libClient_program*:(.text .text.*)
-        *libClient_program*:(.rodata .rodata.*)
-        *libClient_program*:(.data .data.*)
+        /* The KEEP() command prevents the linker from throwing this away */
+        KEEP(*libClient_program*:(.text .text.* .rodata .rodata.* .data .data.*))
+        KEEP(*libdav1d*:(.text .text.* .rodata .rodata.* .data .data.*))
 
         . = ALIGN(4);
         _evram_text = .;
@@ -64,7 +60,7 @@ SECTIONS
     } > VIRTUAL_RAM
 
     /* This section holds the massive uninitialized buffers */
-    .vram_bss (NOLOAD) :
+    .vram_bss (INFO):
     {
         . = ALIGN(4);
         _svram_bss = .;

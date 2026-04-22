@@ -31,7 +31,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
-pico_enable_stdio_usb(${PROJECT_NAME} 1)
+pico_enable_stdio_usb(${PROJECT_NAME} 0)
 
 # Linking to FreeRTOS-Kernel-Heap4 to use a dynamic heap for allocations
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -50,18 +50,25 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
     # cmsis headers
     cmsis_core
-
-    # Client_program
 )
 
-target_link_options(${PROJECT_NAME} PRIVATE
-    "-Wl,--whole-archive"
-)
-
-# target_link_libraries(${PROJECT_NAME} PRIVATE Client_program)
+if(TARGET Client_program)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        "-Wl,--whole-archive"
+        Client_program
+        "-Wl,--no-whole-archive"
+    )
+endif()
 
 target_link_options(${PROJECT_NAME} PRIVATE
     "-Wl,--no-whole-archive"
 )
 
 pico_add_extra_outputs(${PROJECT_NAME})
+
+# Extracts the client program binary into a client_payload.bin file
+add_custom_command(TARGET pico_vpx POST_BUILD
+    # Notice the --set-section-flags argument added here!
+    COMMAND ${CMAKE_OBJCOPY} --set-section-flags .vram_section=alloc,load,contents -O binary -j .vram_section $<TARGET_FILE:pico_vpx> $<TARGET_FILE_DIR:pico_vpx>/client_payload.bin
+    COMMENT "Extracting demand-paged binary for Linux host..."
+)

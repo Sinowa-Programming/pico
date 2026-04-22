@@ -3,6 +3,10 @@
 
 #include "pico/stdlib.h"
 
+// #define KOMIHASH_NS_CUSTOM komihash
+#include "komihash/komihash.h"
+
+
 // Define a 16MB window for the bitstream(s)
 #define MAX_VIRTUAL_FILES   4
 #define VIRTUAL_FILE_BASE   0x80000000
@@ -31,7 +35,7 @@ typedef struct {
 /// @brief The hash function for all files. Used to speed up all subsequent comparisons between file names.
 /// @param file The file name to be hashed
 /// @return The hash of the file name
-inline static uint32_t hash(const char *file);
+inline static uint32_t hash(const char *file) { return komihash(file, strlen(file), 42); };
 
 
 VirtualFile* __wrap__fopen(const char *file, const char* mode);

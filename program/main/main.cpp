@@ -10,21 +10,45 @@
 #include "memory.hpp"
 #include "client_map.h"
 
+#include "debug_led.h"
+
 ExternalMemory external_memory;
 VMM vmm;
 
+
 int main()
 {
+    stdio_init_all();
+
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+
     // Setup the external communication
+    ws2812_send_pixel(0, 0, 0);
     usb_comm_setup();
+    sleep_ms(500);
+    ws2812_send_pixel(255, 0, 0);
+    sleep_ms(500);
 
     // Setup the memory managers
+    ws2812_send_pixel(0, 0, 0);
     vmm = VMM();
     external_memory = ExternalMemory(&vmm, (uint32_t)10);
     vmm.add_external_memory(&external_memory);
 
+    // Start the memory managers
+    external_memory.start();
+    vmm.start();
+    
+    sleep_ms(500);
+    ws2812_send_pixel(0, 0, 255);
+    sleep_ms(500);
+
     // Start the client process
+    ws2812_send_pixel(0, 0, 0);
     CLIENT::start_client_task();
+    sleep_ms(500);
+    ws2812_send_pixel(0, 255, 0);
 
     // Start the processor
     vTaskStartScheduler();

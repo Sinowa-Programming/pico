@@ -9,6 +9,7 @@ find . -type f \( \
     -name "*.elf" -o \
     -name "*.hex" -o \
     -name "*.uf2" -o \
+    -name "*.dis" -o \
     -name "*.elf.map" \
 \) -delete
 

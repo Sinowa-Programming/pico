@@ -56,6 +56,7 @@ add_library(Client_program STATIC
     dp_renderer_pico.c
 
     ${DAV1D_INPUT_SOURCES}
+    keep_client_ref.c
 )
 target_include_directories(Client_program PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
