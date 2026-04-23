@@ -39,19 +39,20 @@ void blink_binary(uint8_t number) {
         
         if (is_one) {
             // Bit is 1: Green
-            ws2812_send_pixel(0, 255, 0); 
+            ws2812_send_pixel(0, 255, 0);
         } else {
             // Bit is 0: Red
-            ws2812_send_pixel(255, 0, 0); 
+            ws2812_send_pixel(255, 0, 0);
         }
         
         // Hold the color so you can see it
-        sleep_ms(700); 
+        sleep_ms(700);
         
         // Turn off briefly between bits to distinguish them
-        ws2812_send_pixel(0, 0, 0); 
-        sleep_ms(300); 
+        ws2812_send_pixel(0, 0, 0);
+        sleep_ms(300);
     }
 
     ws2812_send_pixel(255, 69, 0);  // Orange
+    sleep_ms(700);
 }

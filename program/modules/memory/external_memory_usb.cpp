@@ -4,7 +4,6 @@
 #include "memory.hpp"
 #include "internal_memory.h"
 #include "comm_commands.h"
-#include "usb_comm.h"
 
 #include "debug_led.h"
 
@@ -23,19 +22,15 @@ void ExternalMemory::run() {
         if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY) == pdTRUE) {
             switch(active_req->op) {
                 case MemoryOp::READ: {
-                    ws2812_send_pixel(191, 0, 255); // Purple
+                    blink_binary(active_req->op);
                     // The page is not in memory. Load it.
                     CommunicationHeader header = {
                         MCU_ID,
                         PAGE_TABLE_READ,
-                        sizeof(uint32_t),  // Use 4-byte page id to match host
+                        sizeof(uint32_t),  // The 4 bytes of the page id to read
                     };
-                    // Prepare to receive the incoming page data into the request buffer
-                    page_dest_ptr = active_req->buffer;
-                    transfer_offset = 0;
-                    data_receiving = true;
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t*)&(active_req->arg1), 4);
+                    send_chunked((uint8_t*)&(active_req->arg1), sizeof(uint32_t));
                     ws2812_send_pixel(0, 255, 0); // Green
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     // Notify internal memory that the page has been provided via rx_buffer
@@ -47,10 +42,10 @@ void ExternalMemory::run() {
                     CommunicationHeader header = {
                         MCU_ID,
                         PAGE_TABLE_WRITE,
-                        PAGE_SIZE + 4,  // The actual data + the 4 bytes of the page id to write
+                        PAGE_SIZE + sizeof(uint32_t),  // The actual data + the 4 bytes of the page id to write
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t*)&(active_req->arg1), 4);
+                    send_chunked((uint8_t*)&(active_req->arg1), sizeof(uint32_t));
                     send_chunked(active_req->buffer, PAGE_SIZE);
                     break;
                 }
@@ -67,20 +62,8 @@ void ExternalMemory::run() {
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-                    // rx_buffer points to a 4-byte virtual address returned by host
-                    uint32_t assigned_vaddr = 0;
-                    if (rx_buffer != nullptr) {
-                        memcpy(&assigned_vaddr, rx_buffer, sizeof(uint32_t));
-                    }
-
-                    // Convert to page index and store in arg1 (the caller expects arg1)
-                    uint32_t assigned_page = 0;
-                    if (assigned_vaddr >= VIRTUAL_MEMORY_BASE) {
-                        assigned_page = (assigned_vaddr - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;
-                    } else {
-                        assigned_page = assigned_vaddr;
-                    }
-                    active_req->arg1 = assigned_page;
+                    // Get the remote file id
+                    active_req->arg2 = (uint32_t)rx_buffer / PAGE_SIZE;
                     internal_memory->notify_completion(active_req);
                     break;
                 }
@@ -105,10 +88,10 @@ void ExternalMemory::run() {
                     CommunicationHeader header = {
                         MCU_ID,
                         FILE_CLOSE,
-                        4
+                        sizeof(uint32_t)
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
-                    send_chunked((uint8_t*)&remote_file_id, sizeof(remote_file_id));
+                    send_chunked((uint8_t*)&remote_file_id, sizeof(uint32_t));
                     break;
                 }
                 case MemoryOp::FREAD: {
@@ -169,7 +152,7 @@ ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
 }
 
 void ExternalMemory::start() {
-    xTaskCreate(task_entry, "USB_DMA_VMM", 2048, this, configMAX_PRIORITIES - 1, &run_task);
+    xTaskCreate(task_entry, "USB_DMA_VMM", 4096, this, configMAX_PRIORITIES - 1, &run_task);
     vTaskCoreAffinitySet(run_task, SYSTEM_CORE_AFFINITY);
 }
 
@@ -202,10 +185,11 @@ static void send_chunked(uint8_t* data, uint32_t len) {
 
             // Push to FIFO
             tud_vendor_write(data + sent, chunk);
+            tud_vendor_write_flush();
             sent += chunk;
         } else {
             // FIFO Full: Yield to FreeRTOS to let USB ISR drain buffer
-            vTaskDelay(1);
+            vTaskDelay(10);
         }
     }
 }

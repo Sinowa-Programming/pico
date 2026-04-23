@@ -15,7 +15,8 @@ extern "C" {
 #define CFG_TUSB_OS         OPT_OS_FREERTOS
 
 // Legacy RHPORT configuration
-#define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)   // Usb Device Mode + Full Speed (12Mbps)
+// RP2040 is a full-speed (12Mbps) device. Use FULL_SPEED rather than HIGH_SPEED.
+#define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)   // Usb Device Mode + Full Speed (12Mbps)
 #ifndef BOARD_TUD_RHPORT
 #define BOARD_TUD_RHPORT        (0)
 #endif
@@ -39,10 +40,10 @@ extern "C" {
 #define CFG_TUD_DFU_RT           0
 
 // Used by pico_stdio_usb
-#define CFG_TUD_CDC_EP_BUFSIZE  64          // 64 is the max packet size for full speed
-#define CFG_TUD_CDC_RX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
-#define CFG_TUD_CDC_TX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
-#define CFG_TUD_CDC              1
+//#define CFG_TUD_CDC_EP_BUFSIZE  64          // 64 is the max packet size for full speed
+//#define CFG_TUD_CDC_RX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
+//#define CFG_TUD_CDC_TX_BUFSIZE (2048 + 64)  // 2kb + 64 bytes for header/command headroom
+#define CFG_TUD_CDC              0
 
 // MSC class is not needed
 #define CFG_TUD_MSC              0

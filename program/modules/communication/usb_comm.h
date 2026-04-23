@@ -5,9 +5,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-// Task stack size: Needs to be large enough to handle USB descriptors and callbacks
-// 2048 - 4096 bytes is usually safe for CDC/MSC.
-#define USBD_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
+#define USBD_STACK_SIZE     4096
 #define USBD_PRIORITY       (configMAX_PRIORITIES - 1) // High priority recommended
 
 extern TaskHandle_t usb_device_task_tcb;
@@ -20,12 +18,9 @@ void usb_comm_setup();
 void usb_device_task(void *param);
 
 // === VMM specific. This won't exist for the spi version ===
-// These are declared `extern` here and defined in usb_comm.cpp so other
-// translation units (like external_memory_usb.cpp) can set them when they
-// expect an incoming transfer from the host.
-extern uint8_t* page_dest_ptr; // Pointer to where we are writing
-extern uint32_t transfer_offset;         // How many bytes we've written
-extern bool data_receiving;      // Are we in the middle of a transfer?
+static uint8_t* page_dest_ptr = nullptr; // Pointer to where we are writing
+static uint32_t transfer_offset = 0;         // How many bytes we've written
+static bool data_receiving = false;      // Are we in the middle of a transfer?
 
 // Helper to safely move data
 // We use memcpy here because for <512 bytes, the CPU overhead of setting up
