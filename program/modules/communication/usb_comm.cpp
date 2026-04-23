@@ -92,6 +92,7 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
 // ==========================================================
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
+    ws2812_send_pixel(255, 94, 0);  // Orange
     // 2. PARSE NEW COMMANDS
     // Ensure we have at least the header (MCU_ID + CMD)
     if (bufsize < 2) return;
@@ -110,6 +111,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
             external_memory.notify_transfer_completion();
         }
+        tud_vendor_read_flush();
+        ws2812_send_pixel(0, 0, 0);
         return;
     }
 
@@ -159,8 +162,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
 
         case FILE_OPEN: {
-            uint32_t remote_file_id;
-            memcpy(&remote_file_id, buffer + 2, sizeof(uint32_t));
+            int32_t remote_file_id;
+            memcpy(&remote_file_id, buffer + 2, sizeof(int32_t));
             external_memory.notify_transfer_completion(&remote_file_id);
             break;
         }
@@ -179,6 +182,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             // An invalid command was sent
             break;
     }
+    tud_vendor_read_flush();
+    ws2812_send_pixel(0, 0, 0);
 }
 
 

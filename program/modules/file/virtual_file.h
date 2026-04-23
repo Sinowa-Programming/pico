@@ -28,7 +28,7 @@ typedef struct {
     uint32_t offset;
     char* flags;
     // The remote/external file id returned by the host-side file-open command
-    uint32_t remote_id;
+    int32_t remote_id;
 } VirtualFile;
 
 
