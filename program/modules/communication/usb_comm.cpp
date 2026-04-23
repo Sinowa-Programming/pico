@@ -29,7 +29,7 @@ void usb_command_task(void *param) {
                     // Make the new address resident (may block waiting for external memory)
                     vmm.access(cmd.vaddr, false);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
-                    ws2812_send_pixel(0, 255, 0); // Green
+                    ws2812_send_pixel(119, 7, 122); // Pink
                     break;
                 default:
                     break;
