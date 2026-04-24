@@ -286,6 +286,17 @@ void *VMM::alloc(size_t mem_size)
     return (void*)(VIRTUAL_MEMORY_BASE + (req.arg1 * PAGE_SIZE));  // The data will always be page aligned.
 }
 
+void VMM::free(uint32_t virtual_addr)
+{
+    MemoryRequest req = {
+        MemoryOp::FREE,
+        .arg1 = virtual_addr,   // arg1: requested memory size
+        .task = NULL    // Lazy free
+    };
+
+    _external_memory->submit_request(req);
+}
+
 VirtualFile* VMM::file_open(const char *file, char* mode)
 {
     uint32_t file_hash = hash(file);

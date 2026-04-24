@@ -68,6 +68,14 @@ void ExternalMemory::run() {
                     break;
                 }
 
+                case MemoryOp::FREE: {
+                    break;
+                }
+
+                case MemoryOp::LOG: {
+                    break;
+                }
+
                 /* FILE */
                 case MemoryOp::FOPEN: {
                     char* filename = (char *)(active_req->arg1);

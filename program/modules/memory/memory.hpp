@@ -21,6 +21,9 @@ typedef enum {
     READ,       // The device wants to pull data from the host
     WRITE,      // The device wants to write data to the host
     ALLOC,      // The device needs the host to provide it with an empty page
+    FREE,       // The device wants the host to label a sections of memory as unallocated.
+
+    LOG,        // Send printf string to the host
 
     // For files specifically. These will affect the file buffer.
     FREAD,
@@ -36,6 +39,7 @@ struct MemoryRequest {
     ALLOC: Returns the newly provided page id.
     FOPEN: Pointer to the file name
     FREAD | FWRITE: The file offset
+    FREE: The virtual address to free
     */
     uint32_t arg1; // Generic argument 1 (used for virtual page id, file offset, or filename pointer)
 

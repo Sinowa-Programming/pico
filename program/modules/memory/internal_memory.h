@@ -94,6 +94,8 @@ public:
     /// @param mem_size The size of the memory block to be allocated
     /// @return Returns the virtual address to the start of the object
     void *alloc(size_t mem_size);
+
+    void free(uint32_t virtual_addr);
     /* ========================= */
 
     /* === File Functions === */

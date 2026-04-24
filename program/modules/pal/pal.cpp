@@ -1,4 +1,5 @@
 #include "pal.h"
+#include "memory.hpp"
 
 // Custom memset for Virtual Addresses
 void vmemset(uint32_t dest_v_addr, int value, size_t count) {
@@ -59,11 +60,60 @@ void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
 
 void *vcalloc(size_t num, size_t size)
 {
-    size_t alloc_pages_needed = size / PAGE_SIZE;
-    uint8_t frame_idx;
-
-    for(size_t pages_alloced = 0; pages_alloced < alloc_pages_needed; ++pages_alloced){
-
+    size_t total_size = num * size;
+    if (total_size == 0) {
+        return nullptr;
     }
-    return nullptr;
+
+    // Allocate the total memory needed
+    uint32_t start_virtual_addr = (uint32_t)vmm.alloc(total_size);
+
+    uint32_t current_addr = start_virtual_addr;
+    size_t bytes_remaining = total_size;
+
+    // Loop through the allocation, page by page (or partial page)
+    while (bytes_remaining > 0) {
+        // Force the VMM to load this specific virtual address into physical SRAM
+        vmm.access(current_addr);
+
+        // Calculate how much memory to clear in this specific page
+        uint32_t offset = current_addr % PAGE_SIZE;
+        size_t bytes_in_page = PAGE_SIZE - offset;
+        size_t bytes_to_clear = (bytes_remaining < bytes_in_page) ? bytes_remaining : bytes_in_page;
+
+        // Get the physical pointer and clear it using memset
+        void* phys_ptr = (void*)vmm.get_physical_ptr(current_addr);
+        memset(phys_ptr, 0, bytes_to_clear);
+
+        // Advance to the next chunk
+        current_addr += bytes_to_clear;
+        bytes_remaining -= bytes_to_clear;
+    }
+
+    // Return the beginning of the newly allocated and zeroed block
+    return (void*)start_virtual_addr;
+}
+
+void *vmalloc(size_t size)
+{
+    if(size == 0) {
+        return nullptr;
+    }
+    return vmm.alloc(size);
+}
+
+void vfree(void *ptr)
+{
+    vmm.free((uint32_t)ptr);
+}
+
+int vprintf(const char *format, ...)
+{
+    MemoryRequest req = {
+        MemoryOp::LOG,
+        .buffer = (uint8_t *)format,
+        .task = NULL    // Lazy print
+    };
+
+    external_memory.submit_request(req);
 }
