@@ -11,7 +11,8 @@ project(pico_vpx C CXX ASM)
 
 pico_sdk_init()
 
-option(ENABLE_DAV1D_PICO_INTERFACE "Build the dav1d pico interface" ON)
+option(ENABLE_DAV1D_PICO_INTERFACE "Build the dav1d pico interface" OFF)
+option(ENABLE_VMMU_TEST_PROGRAM "Enables the test program to verify functionality" ON)
 
 # Free RTOS
 add_library(freertos_config INTERFACE)
@@ -25,12 +26,18 @@ include(FreeRTOS_Kernel_import.cmake)
 
 message("FreeRTOS Kernel setup")
 
+
+# Enable the client programs
 if(ENABLE_DAV1D_PICO_INTERFACE)
     add_subdirectory(ported_programs/dav1d_pico_interface)
+elseif(ENABLE_VMMU_TEST_PROGRAM)
+    add_subdirectory(ported_programs/test_program)
 else()
-    message(STATUS "dav1d pico interface disabled (ENABLE_DAV1D_PICO_INTERFACE=OFF)")
+    message(STATUS "All client programs are disabled currently.")
     if(NOT TARGET Client_program)
         add_library(Client_program INTERFACE)
     endif()
 endif()
+
+# Add the VMMU base code
 add_subdirectory(program)
