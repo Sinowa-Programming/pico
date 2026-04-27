@@ -11,6 +11,7 @@ target_compile_options(vram_settings INTERFACE
 # Adding Source code
 add_library(Client_program STATIC
     test_program_main.c
+    keep_client_ref.c
 )
 target_include_directories(Client_program PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -39,4 +40,8 @@ target_compile_definitions(Client_program PRIVATE
     $<TARGET_PROPERTY:pico_stdlib,INTERFACE_COMPILE_DEFINITIONS>
 )
 
-target_compile_options(Client_program PRIVATE "-include" "FreeRTOS.h")
+# Combine and protect your includes so CMake doesn't strip the flags
+target_compile_options(Client_program PRIVATE 
+    "SHELL:-include FreeRTOS.h"
+    "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/../../program/modules/pal/pal_stdlib.h"
+)

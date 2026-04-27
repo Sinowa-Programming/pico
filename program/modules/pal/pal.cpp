@@ -1,6 +1,8 @@
 #include "pal.h"
 #include "memory.hpp"
 
+#include <cstdio>
+
 // Custom memset for Virtual Addresses
 void vmemset(uint32_t dest_v_addr, int value, size_t count) {
     while (count > 0) {
@@ -109,11 +111,21 @@ void vfree(void *ptr)
 
 int vprintf(const char *format, ...)
 {
-    MemoryRequest req = {
-        MemoryOp::LOG,
-        .buffer = (uint8_t *)format,
-        .task = NULL    // Lazy print
-    };
+    va_list args;
+    va_start(args, format);
 
-    external_memory.submit_request(req);
+    // Format the string into the buffer
+    // vsnprintf returns the number of characters written
+    int result = vsnprintf(formatted_text, sizeof(formatted_text), format, args);
+
+    if (result > 0) {
+        MemoryRequest req = {
+            .op = MemoryOp::LOG,
+            .buffer = (uint8_t *)formatted_text,
+            .task = NULL
+        };
+        external_memory.submit_request(req);
+    }
+
+    return result;
 }

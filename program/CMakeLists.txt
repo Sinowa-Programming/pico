@@ -52,7 +52,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     cmsis_core
 )
 
-target_compile_options(Client_program PRIVATE "-include" "${CMAKE_CURRENT_LIST_DIR}/modules/pal/pal_stdlib.h")
+#target_compile_options(Client_program PRIVATE "-include" "${CMAKE_CURRENT_LIST_DIR}/modules/pal/pal_stdlib.h")
 
 if(TARGET Client_program)
     target_link_libraries(${PROJECT_NAME} PRIVATE

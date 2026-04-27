@@ -9,7 +9,6 @@
 
 #ifdef USB_COMM
 
-static void transmit_page(uint8_t* page_data, uint32_t page_index);
 static void send_chunked(uint8_t* data, uint32_t len);
 
 void ExternalMemory::setup_dma() {
@@ -26,7 +25,7 @@ void ExternalMemory::run() {
                     // The page is not in memory. Load it.
                     CommunicationHeader header = {
                         MCU_ID,
-                        PAGE_TABLE_READ,
+                        CommCommand::PAGE_TABLE_READ,
                         sizeof(uint32_t),  // The 4 bytes of the page id to read
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
@@ -41,7 +40,7 @@ void ExternalMemory::run() {
                 case MemoryOp::WRITE: {
                     CommunicationHeader header = {
                         MCU_ID,
-                        PAGE_TABLE_WRITE,
+                        CommCommand::PAGE_TABLE_WRITE,
                         PAGE_SIZE + sizeof(uint32_t),  // The actual data + the 4 bytes of the page id to write
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
@@ -53,7 +52,7 @@ void ExternalMemory::run() {
                 case MemoryOp::ALLOC: {
                     CommunicationHeader header = {
                         MCU_ID,
-                        PAGE_TABLE_ALLOC,
+                        CommCommand::PAGE_TABLE_ALLOC,
                         sizeof(uint32_t),    // Tell the swap system the size of the block we are requesting
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
@@ -69,10 +68,26 @@ void ExternalMemory::run() {
                 }
 
                 case MemoryOp::FREE: {
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        CommCommand::PAGE_TABLE_FREE,
+                        sizeof(uint32_t),       // The address to free
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&(active_req->arg1), sizeof(uint32_t));
                     break;
                 }
 
+                /* MISC */
                 case MemoryOp::LOG: {
+                    uint32_t log_size = strlen((char *)active_req->buffer);
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        CommCommand::PRINTF_LOG,
+                        log_size,
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked(active_req->buffer, log_size);
                     break;
                 }
 
@@ -81,7 +96,7 @@ void ExternalMemory::run() {
                     char* filename = (char *)(active_req->arg1);
                     CommunicationHeader header = {
                         MCU_ID,
-                        FILE_OPEN,
+                        CommCommand::FILE_OPEN,
                         strlen(filename)
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
@@ -91,17 +106,19 @@ void ExternalMemory::run() {
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     break;
                 }
+
                 case MemoryOp::FCLOSE: {
                     uint32_t remote_file_id = active_req->arg3;
                     CommunicationHeader header = {
                         MCU_ID,
-                        FILE_CLOSE,
+                        CommCommand::FILE_CLOSE,
                         sizeof(uint32_t)
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&remote_file_id, sizeof(uint32_t));
                     break;
                 }
+
                 case MemoryOp::FREAD: {
                     struct __attribute__((__packed__)) {
                         uint32_t file_offset;
@@ -114,7 +131,7 @@ void ExternalMemory::run() {
 
                     CommunicationHeader header = {
                         MCU_ID,
-                        FILE_READ,
+                        CommCommand::FILE_READ,
                         sizeof(file_read_header)
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
@@ -124,6 +141,7 @@ void ExternalMemory::run() {
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     break;
                 }
+
                 case MemoryOp::FWRITE: {
                     // Data to be sent over
                     struct __attribute__((__packed__)) {
@@ -137,7 +155,7 @@ void ExternalMemory::run() {
 
                     CommunicationHeader header = {
                         MCU_ID,
-                        FILE_WRITE,
+                        CommCommand::FILE_WRITE,
                         sizeof(file_write_header) + VIRTUAL_FILE_PAGE_SIZE,  // The file header + the actual data
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
