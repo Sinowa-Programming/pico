@@ -4,3 +4,6 @@
 [submodule "program/libs/komihash"]
 	path = program/libs/komihash
 	url = https://github.com/avaneev/komihash.git
+[submodule "ported_programs/ported_dav1d/dav1d"]
+	path = ported_programs/ported_dav1d/dav1d
+	url = https://github.com/videolan/dav1d.git

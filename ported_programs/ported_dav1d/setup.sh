@@ -1,4 +1,4 @@
-git clone https://github.com/videolan/dav1d.git # Currently on commit 60507bffc0b13e7a81753a51005dbbeba4b23018 when origionally cloned.
+# git clone https://github.com/videolan/dav1d.git # Currently on commit 60507bffc0b13e7a81753a51005dbbeba4b23018 when origionally cloned.
 
 cd dav1d
 rm -rf build
