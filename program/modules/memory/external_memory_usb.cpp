@@ -21,7 +21,6 @@ void ExternalMemory::run() {
         if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY) == pdTRUE) {
             switch(active_req->op) {
                 case MemoryOp::READ: {
-                    blink_binary(active_req->op);
                     // The page is not in memory. Load it.
                     CommunicationHeader header = {
                         MCU_ID,
@@ -61,8 +60,8 @@ void ExternalMemory::run() {
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-                    // Get the remote file id
-                    active_req->arg2 = (uint32_t)rx_buffer / PAGE_SIZE;
+                    // Get the virtual address
+                    active_req->arg1 = (uint32_t)rx_buffer;
                     internal_memory->notify_completion(active_req);
                     break;
                 }

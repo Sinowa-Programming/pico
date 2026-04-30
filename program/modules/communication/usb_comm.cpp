@@ -26,10 +26,14 @@ void usb_command_task(void *param) {
         if (xQueueReceive(usb_command_queue, &cmd, portMAX_DELAY) == pdTRUE) {
             switch (cmd.cmd) {
                 case START_CLIENT:
+                    blink_binary_32(cmd.vaddr);
                     // Make the new address resident (may block waiting for external memory)
                     vmm.access(cmd.vaddr, false);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
+                    CLIENT::start_client_task();
                     ws2812_send_pixel(119, 7, 122); // Pink
+                    vprintf("Starting client task...");
+                    sleep_ms(1000);
                     break;
                 default:
                     break;
@@ -118,7 +122,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
     uint8_t command = buffer[1];
 
-    blink_binary(command);
+    // blink_binary(command);
 
     switch (command)
     {
@@ -128,20 +132,20 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             data_receiving = true;
 
             // Handle payload included in THIS packet (after the 2 header bytes)
-            if (bufsize > 2) {
-                buffer_data_chunk(buffer + 2, bufsize - 2);
+            if (bufsize > 4) {
+                buffer_data_chunk(buffer + 4, bufsize - 4);
             }
             break;
 
         case PAGE_TABLE_ALLOC: {
             uint32_t vaddr;
-            memcpy(&vaddr, buffer + 2, sizeof(uint32_t));
-            external_memory.notify_transfer_completion(&vaddr);
+            memcpy(&vaddr, buffer + 4, sizeof(uint32_t));
+            external_memory.notify_transfer_completion((void *)vaddr);
             break;
         }
         case START_CLIENT: { // This also resets the client if it is actively running
             uint32_t vaddr;
-            memcpy(&vaddr, buffer + 2, sizeof(uint32_t));
+            memcpy(&vaddr, buffer + 4, sizeof(uint32_t));
             // Enqueue the request for the command task to process so USB task doesn't block
             if (usb_command_queue != NULL) {
                 UsbCommand_t cmd = { .cmd = START_CLIENT, .vaddr = vaddr };
@@ -163,8 +167,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
         case FILE_OPEN: {
             int32_t remote_file_id;
-            memcpy(&remote_file_id, buffer + 2, sizeof(int32_t));
-            external_memory.notify_transfer_completion(&remote_file_id);
+            memcpy(&remote_file_id, buffer + 4, sizeof(int32_t));
+            external_memory.notify_transfer_completion((void *)remote_file_id);
             break;
         }
 
@@ -175,7 +179,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
             // Handle payload included in THIS packet (after the 2 header bytes)
             if (bufsize > 2) {
-                buffer_data_chunk(buffer + 2, bufsize - 2);
+                buffer_data_chunk(buffer + 4, bufsize - 4);
             }
             break;
         default:

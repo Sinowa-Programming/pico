@@ -12,5 +12,6 @@ void ws2812_send_bit(bool bit);
 void ws2812_send_pixel(uint8_t r, uint8_t g, uint8_t b);
 
 void blink_binary(uint8_t number);
+void blink_binary_32(uint32_t number);
 
 #endif

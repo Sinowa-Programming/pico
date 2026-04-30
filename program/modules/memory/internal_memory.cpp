@@ -281,7 +281,7 @@ void *VMM::alloc(size_t mem_size)
         .task = cur_task    // active task
     };
     _external_memory->submit_request(req);
-    xTaskNotifyGive(cur_task);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
     return (void*)(VIRTUAL_MEMORY_BASE + (req.arg1 * PAGE_SIZE));  // The data will always be page aligned.
 }

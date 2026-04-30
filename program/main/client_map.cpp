@@ -12,23 +12,8 @@ namespace {
 
 TaskHandle_t CLIENT::client_task_tcb = NULL;
 
-// Spin lock program when nothing is happening.
-__attribute__((noinline, noclone)) void default_func(void) {
-    while(1);
-}
-
-// Placed immediately after the payload to calculate the size of the compiled function.
-__attribute__((noinline, noclone)) void default_func_end(void) {
-    __asm volatile("nop"); // Prevent the compiler from optimizing this away
-}
 
 void CLIENT::start_client_task() {
-    uintptr_t start_addr = (uintptr_t)default_func & ~1UL;   // Remove 1 LSB to get actual address
-    uintptr_t end_addr   = (uintptr_t)default_func_end & ~1UL;
-
-    // Load the default function into the first frame
-    memcpy(vmm.sram_frames[0], (const void*)start_addr, end_addr - start_addr);
-
     if(client_task_tcb != NULL) {
         vTaskDelete(client_task_tcb);
     }
@@ -46,14 +31,12 @@ void CLIENT::start_client_task() {
 }
 
 void CLIENT::load_frame(uintptr_t physical_addr) {
+    // Make sure to all data and instruction accesses are completed
     __DSB();
     __ISB();
 
-    // Indicate thumb mode for arm execution( not having this leads to a hard fault )
-    uintptr_t thumb_address = physical_addr | 1;
-
     // Cast the address to a function pointer
-    client_main = (main_func_t)thumb_address;
+    client_main = (main_func_t)physical_addr;
 }
 
 void CLIENT::client_task(void* pvParameters) {

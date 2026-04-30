@@ -46,12 +46,13 @@ int main()
 
     // Start the client process
     ws2812_send_pixel(0, 0, 0);
-    CLIENT::start_client_task();
+    // CLIENT::start_client_task();
     sleep_ms(500);
     ws2812_send_pixel(0, 255, 0);
 
     // Start the processor
     vTaskStartScheduler();
+
     return 0;
 }
 
