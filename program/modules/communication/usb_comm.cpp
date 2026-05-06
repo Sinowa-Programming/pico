@@ -82,7 +82,7 @@ void usb_device_task(void *param) {
 
 // === VMM specific. This won't exist for the spi version ===
 // Helper to safely move data
-// We use memcpy here because for <512 bytes, the CPU overhead of setting up
+// We use memcpy here because for <64 bytes, the CPU overhead of setting up
 // a blocking DMA is often higher than just copying the memory.
 void buffer_data_chunk(const uint8_t* src, size_t len) {
     if (transfer_offset + len > PAGE_SIZE) {
@@ -97,14 +97,13 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
     ws2812_send_pixel(255, 94, 0);  // Orange
-    // 2. PARSE NEW COMMANDS
+
     // Ensure we have at least the header (MCU_ID + CMD)
     if (bufsize < 2) return;
 
     uint8_t mcu_id = buffer[0];
     if (mcu_id != MCU_ID) return;
 
-    // 1. HANDLE ONGOING TRANSMISSION
     // If we are already receiving a page, treat this entire packet as data
     if (data_receiving) {
         buffer_data_chunk(buffer, bufsize);
@@ -127,7 +126,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
     switch (command)
     {
         case PAGE_TABLE_WRITE:
-            page_dest_ptr = vmm.sram_frames[buffer[2]];
+            page_dest_ptr = external_memory.get_memory_request_sram_buffer();
             transfer_offset = 0;
             data_receiving = true;
 
@@ -151,7 +150,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
                 UsbCommand_t cmd = { .cmd = START_CLIENT, .vaddr = vaddr };
                 BaseType_t ok = xQueueSend(usb_command_queue, &cmd, 0);
                 if (ok != pdTRUE) {
-                    // Queue full; log it (do not block)
+                    // Queue full;
                 }
             }
             break;
@@ -178,7 +177,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             data_receiving = true;
 
             // Handle payload included in THIS packet (after the 2 header bytes)
-            if (bufsize > 2) {
+            if (bufsize > 4) {
                 buffer_data_chunk(buffer + 4, bufsize - 4);
             }
             break;

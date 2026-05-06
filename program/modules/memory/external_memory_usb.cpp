@@ -164,15 +164,24 @@ void ExternalMemory::run() {
                 }
             }
 
+            if (active_req->req != nullptr) {
+                active_req->req->arg1 = active_req->arg1;
+                active_req->req->arg2 = active_req->arg2;
+                active_req->req->arg3 = active_req->arg3;
+            }
+
             if(active_req->task != NULL) {
                 xTaskNotifyGive(active_req->task);
             }
+            
+            // Clean up the dynamically allocated copy
+            vPortFree(active_req);
         }
     }
 }
 
 ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
-    mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest));
+    mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest *));
     setup_dma();
 }
 
@@ -182,7 +191,11 @@ void ExternalMemory::start() {
 }
 
 void ExternalMemory::submit_request(MemoryRequest &req) {
-    xQueueSend(mem_requests, &req, portMAX_DELAY);
+    MemoryRequest* req_copy = (MemoryRequest*)pvPortMalloc(sizeof(MemoryRequest));
+    if (req_copy != nullptr) {
+        memcpy(req_copy, &req, sizeof(MemoryRequest));
+        xQueueSend(mem_requests, &req_copy, portMAX_DELAY);
+    }
 }
 
 uint8_t* ExternalMemory::get_memory_request_sram_buffer() {

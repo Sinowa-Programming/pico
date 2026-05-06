@@ -64,6 +64,7 @@ struct MemoryRequest {
     // Pointer to the page in memory
     uint8_t* buffer;
     TaskHandle_t task;      // The task that owns the request
+    MemoryRequest *req;     // Pointer to the address
 };
 
 template <size_t N>

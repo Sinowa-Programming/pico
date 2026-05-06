@@ -35,8 +35,8 @@ void CLIENT::load_frame(uintptr_t physical_addr) {
     __DSB();
     __ISB();
 
-    // Cast the address to a function pointer
-    client_main = (main_func_t)physical_addr;
+    // Cast the address to a function pointer + Make it a thumb instruction
+    client_main = (main_func_t)(physical_addr | 1);
 }
 
 void CLIENT::client_task(void* pvParameters) {

@@ -230,6 +230,7 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
             .buffer = sram_frames[page_to_frame[page_id]],
             .task = xTaskGetCurrentTaskHandle()
         };
+        req.req = &req;
         _external_memory->submit_request(req);
 
         // Suspend the task. When it is woken up, the page will be in local memory
@@ -280,6 +281,7 @@ void *VMM::alloc(size_t mem_size)
         .arg2 = mem_size,   // arg2: requested memory size
         .task = cur_task    // active task
     };
+    req.req = &req;
     _external_memory->submit_request(req);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -314,8 +316,9 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
         .arg1 = (uint32_t)file, // Filename of file to open
         .task = xTaskGetCurrentTaskHandle()
     };
+    req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Wait until the file has been loaded
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the file has been loaded
 
     uint32_t file_size = req.arg2;
     if (file_size == 0) return NULL;
@@ -338,6 +341,7 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
                 .buffer = file_frames[file_id],     // Pointer to the buffer
                 .task = xTaskGetCurrentTaskHandle()
             };
+            req.req = &req;
             _external_memory->submit_request(write_req);
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the file has been written
         }
@@ -392,8 +396,9 @@ size_t VMM::file_write(const void* __restrict__ buffer, size_t size, size_t coun
         .buffer = file_frames[stream->descriptor],  // Frame to write
         .task = xTaskGetCurrentTaskHandle()
     };
+    req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until all the writing is complete
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Pause the task until all the writing is complete
 
     stream->offset += total_bytes;
 
@@ -421,8 +426,9 @@ size_t VMM::file_read(void *ptr, size_t size, size_t count, VirtualFile *stream)
             .buffer = file_frames[stream->descriptor],  // Frame to write
             .task = xTaskGetCurrentTaskHandle()
         };
+        req.req = &req;
         _external_memory->submit_request(req);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;  // Pause the task until the next frame is loaded is complete
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Pause the task until the next frame is loaded is complete
 
         // Copy the data from the file frame into the given buffer
         memcpy(ptr + current_byte, file_frames[stream->descriptor], chunk_size);
@@ -447,7 +453,7 @@ int VMM::file_close(VirtualFile *stream) {
             .arg2 = VIRTUAL_FILE_PAGE_SIZE,             // Total bytes to write
             .arg3 = stream->remote_id,                  // File id on remote server
             .buffer = file_frames[stream->descriptor],  // Frame to write
-            .task = xTaskGetCurrentTaskHandle()
+            .task = NULL                                // The second memory request (FCLOSE) will be where the task is woken up.
         };
         _external_memory->submit_request(req);
     }
@@ -458,6 +464,7 @@ int VMM::file_close(VirtualFile *stream) {
         .arg3 = stream->remote_id,                  // File id on remote server
         .task = xTaskGetCurrentTaskHandle()
     };
+    req.req = &req;
     _external_memory->submit_request(req);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -490,8 +497,9 @@ void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
             .buffer = file_frame,
             .task = xTaskGetCurrentTaskHandle()
         };
+        req.req = &req;
         _external_memory->submit_request(req);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);;
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
 
     // If the queue is full then there are no available MPU regions. We have to replace one of them.
