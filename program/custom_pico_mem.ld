@@ -27,7 +27,11 @@
 
 MEMORY
 {
-    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 512k
+    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 508k
+
+    /* MODIFIED */
+    API_RAM(rwx) : ORIGIN = 0x2007F000, LENGTH = 4k
+
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
 
@@ -41,7 +45,17 @@ ENTRY(_entry_point)
 SECTIONS
 {
 
-    /* MODIFIED
+    /* MODIFIED */
+    /*
+        API jump table location. Allows the client to call VMMU functions
+    */
+    .api_jump_table :
+    {
+        KEEP(*(.api_table_section))
+    } > API_RAM
+
+
+    /*
         This section holds the client code
     */
     .vram_section (INFO):
