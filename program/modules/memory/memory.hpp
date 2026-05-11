@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 
+#define CLIENT_CORE_AFFINITY  (1U << 1) // Core 1
 #define SYSTEM_CORE_AFFINITY (1U << 0)
 
 #define VIRTUAL_MEMORY_SIZE  (40 * 1024 * 1024) // 40MB

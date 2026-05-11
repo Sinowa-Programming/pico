@@ -159,8 +159,10 @@ void MemManage_Handler_C(StackFrame *frame) {
 
     while(1) {
         sleep_ms(1000);
-        printf("Memory fault! Unknown Address. Time to spinlock!\n");
+        // printf("Memory fault! Unknown Address. Time to spinlock!\n");
         ws2812_send_pixel(0,0,255);
+        sleep_ms(1000);
+        ws2812_send_pixel(0,0,0);
     }
 }
 

@@ -4,12 +4,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define CLIENT_CORE_AFFINITY  (1U << 1) // Core 1
 #define CLIENT_PRIORITY         (configMAX_PRIORITIES - 1) // High priority recommended
 
 namespace CLIENT {
     // Calculate size in WORDS (100KB = 100,000 bytes / 4 = 25,000 words)
-    const int CLIENT_TASK_STACK_SIZE = 25000;
+    const int CLIENT_TASK_STACK_SIZE = 5000;//25000;
 
     typedef void (*main_func_t)(void);
 

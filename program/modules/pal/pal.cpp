@@ -4,7 +4,7 @@
 #include <cstdio>
 
 // Custom memset for Virtual Addresses
-void vmemset(uint32_t dest_v_addr, int value, size_t count) {
+void _vmemset(uint32_t dest_v_addr, int value, size_t count) {
     while (count > 0) {
         // 1. Ensure the page is resident and marked as dirty
         // Calling access() handles the Page Fault logic and LRU updates
@@ -30,7 +30,7 @@ void vmemset(uint32_t dest_v_addr, int value, size_t count) {
 }
 
 // Custom memcpy for Virtual Addresses
-void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
+void _vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
     while (count > 0) {
         // 1. Force the pages into RAM via access() (just for the first byte of each page)
         // This triggers the page fault logic if necessary.
@@ -60,7 +60,7 @@ void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
     }
 }
 
-void *vcalloc(size_t num, size_t size)
+void *_vcalloc(size_t num, size_t size)
 {
     size_t total_size = num * size;
     if (total_size == 0) {
@@ -96,7 +96,7 @@ void *vcalloc(size_t num, size_t size)
     return (void*)start_virtual_addr;
 }
 
-void *vmalloc(size_t size)
+void *_vmalloc(size_t size)
 {
     if(size == 0) {
         return nullptr;
@@ -104,12 +104,12 @@ void *vmalloc(size_t size)
     return vmm.alloc(size);
 }
 
-void vfree(void *ptr)
+void _vfree(void *ptr)
 {
     vmm.free((uint32_t)ptr);
 }
 
-int vprintf(const char *format, ...)
+int _vprintf(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
@@ -121,11 +121,15 @@ int vprintf(const char *format, ...)
     if (result > 0) {
         MemoryRequest req = {
             .op = MemoryOp::LOG,
-            .buffer = (uint8_t *)formatted_text,
-            .task = NULL
+            .buffer = (uint8_t *)formatted_text
         };
         external_memory.submit_request(req);
     }
 
     return result;
+}
+
+void _vsleep(uint32_t time)
+{
+    vTaskDelay(pdMS_TO_TICKS(time));
 }

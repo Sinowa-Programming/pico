@@ -38,10 +38,10 @@ target_link_libraries(Client_program PRIVATE
 
 target_compile_definitions(Client_program PRIVATE
     $<TARGET_PROPERTY:pico_stdlib,INTERFACE_COMPILE_DEFINITIONS>
+    IS_CLIENT_PROGRAM
 )
 
 # Combine and protect your includes so CMake doesn't strip the flags
 target_compile_options(Client_program PRIVATE 
     "SHELL:-include FreeRTOS.h"
-    "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/../../program/modules/pal/pal_stdlib.h"
 )

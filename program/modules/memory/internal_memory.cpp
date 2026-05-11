@@ -242,6 +242,14 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
         req.req = &req;
         _external_memory->submit_request(req);
 
+        char log[256];
+        snprintf(log, sizeof(log), "Relative Address: 0x%x\nPage ID: %u", relative_addr, page_id);
+        MemoryRequest treq = {
+            .op = MemoryOp::LOG,
+            .buffer = sram_frames[frame],
+        };
+        _external_memory->submit_request(treq);
+
         // Suspend the task. When it is woken up, the page will be in local memory
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -271,6 +279,7 @@ uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
 
     // Assumes page is already resident (call access() first to ensure it)
     int16_t frame_idx = page_to_frame[page_id];
+    
     // Return the address within the physical SRAM frame for the given virtual address
     return (uintptr_t)(sram_frames[frame_idx] + offset);
 }

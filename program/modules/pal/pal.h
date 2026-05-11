@@ -16,18 +16,20 @@ extern "C" {
 #endif
 
 /* === Memory Functions === */
-void vmemset(uint32_t dest_v_addr, int value, size_t count);
-void vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count);
-void *vcalloc(size_t num, size_t size);
-void *vmalloc(size_t size);
-void vfree(void *ptr);
+void _vmemset(uint32_t dest_v_addr, int value, size_t count);
+void _vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count);
+void *_vcalloc(size_t num, size_t size);
+void *_vmalloc(size_t size);
+void _vfree(void *ptr);
+
+/* === Other functions === */
+static char formatted_text[256];  // Buffer to store the text for the log command
+int _vprintf(const char * format, ...);
+void _vsleep(uint32_t time);
+
 
 #ifdef __cplusplus
 }
 #endif
-
-/* === Other functions === */
-static char formatted_text[256];  // Buffer to store the text for the log command
-int vprintf(const char * format, ...);
 
 #endif  // PAL_H

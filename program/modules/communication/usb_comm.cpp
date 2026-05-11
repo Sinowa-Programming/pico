@@ -25,13 +25,19 @@ void usb_command_task(void *param) {
     while (1) {
         if (xQueueReceive(usb_command_queue, &cmd, portMAX_DELAY) == pdTRUE) {
             switch (cmd.cmd) {
-                case START_CLIENT:
+                case START_CLIENT: {
                     // Make the new address resident (may block waiting for external memory)
                     vmm.access(cmd.vaddr, false);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
                     CLIENT::start_client_task();
-                    vprintf("Starting client task...");
+                    const char *log = "Starting client program...";
+                    MemoryRequest req = {
+                        .op = MemoryOp::LOG,
+                        .buffer = (uint8_t *)log,
+                    };
+                    external_memory.submit_request(req);
                     break;
+                }
                 default:
                     break;
             }
@@ -184,6 +190,5 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
 
 // void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
-//     ws2812_send_pixel(0,0,255);
-//     sleep_ms(1000);
+//     tud_vendor_write_flush();   // Flush any excess data
 // }

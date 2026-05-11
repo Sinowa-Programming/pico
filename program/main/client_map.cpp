@@ -52,24 +52,23 @@ void CLIENT::client_task(void* pvParameters) {
     // to frame 0. Normally the loader will call `load_frame()` prior
     // to starting the task so we avoid unconditionally overwriting
     // the prepared entry point here.
-    // if (client_main == nullptr) {
-    //     load_frame((uintptr_t)vmm.sram_frames[0]);
-    // }
+    if (client_main != nullptr) {
+        load_frame((uintptr_t)vmm.sram_frames[0]);
+        client_main();  // execute the code
+    }
 
-    // client_main();  // execute the code
 
     while(1) {
-        char *log = "Hello from the client program run block!";
-        MemoryRequest req = {
-            .op = MemoryOp::LOG,
-            .buffer = (uint8_t *)log,
-        };
-        external_memory.submit_request(req);
+        // const char *log = "Hello from the client program run block!";
+        // MemoryRequest req = {
+        //     .op = MemoryOp::LOG,
+        //     .buffer = (uint8_t *)log,
+        // };
+        // external_memory.submit_request(req);
 
-        ws2812_send_pixel(0,0,255);
-        sleep_ms(1000);
-        ws2812_send_pixel(0,0,0);
-        sleep_ms(1000);
+        _vprintf("Hello from the client program run block!");
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     vTaskDelete(NULL);
