@@ -1,9 +1,35 @@
 #include "mpu_config.h"
+#include "debug_led.h"
+#include "pal.h"
+
+#include "hardware/sync.h"
+
+enum FaultType {
+    FAULT_IACCVIOL,
+    FAULT_MMARVALID
+};
+
+// Saved the program counter and address for recall after vmm access
+volatile uint32_t saved_fault_pc[2];
+volatile uint32_t saved_fault_addr[2];
+volatile FaultType saved_fault_type[2];
+volatile StackFrame* saved_fault_frame[2]; // So thread mode can modify the stacked registers
+
+extern "C" void vmm_fault_trampoline(void);
+
+extern "C" void vmm_fault_trampoline(void);
 
 void configure_rp2350_mpu()
 {
+    // The Memory Attribute Indirection Registers need to be setup before any regions can be setup.
+    ARM_MPU_SetMemAttr(0, ARM_MPU_ATTR(ARM_MPU_ATTR_MEMORY_(1, 1, 1, 1), ARM_MPU_ATTR_MEMORY_(1, 1, 1, 1)));
+    ARM_MPU_SetMemAttr(1, ARM_MPU_ATTR(ARM_MPU_ATTR_DEVICE, ARM_MPU_ATTR_DEVICE_nGnRnE));
+
     // Enables the MemManage Fault( The MPU's page fault ).
     SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
+
+    // Enable the actual MPU
+    ARM_MPU_Enable(MPU_CTRL_PRIVDEFENA_Msk);
 }
 
 void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access, bool execute) {
@@ -100,9 +126,52 @@ inline static uint32_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
 // This name is a standard CMSIS defined exception handler.
 // The linker automatically maps it to the vector table.
 void MemManage_Handler_C(StackFrame *frame) {
-    // 1. Check for Instruction Fetch Fault (PC ticked over the frame boundary)
+    uint32_t core_id = get_core_num();
+
+    // Check for Instruction Fetch Fault (PC ticked over the frame boundary)
     if (SCB->CFSR & SCB_CFSR_IACCVIOL_Msk) {
-        uintptr_t faulted_physical_pc = frame->pc;
+        saved_fault_type[core_id] = FAULT_IACCVIOL;
+        saved_fault_pc[core_id] = frame->pc;
+        saved_fault_frame[core_id] = frame;
+
+        // Hijack PC to jump to trampoline
+        frame->pc = (uint32_t)&vmm_fault_trampoline | 1;
+
+        // Clear the exception bit
+        SCB->CFSR |= SCB_CFSR_IACCVIOL_Msk;
+        return;
+    }
+
+    // Check if the MMFAR (Fault Address Register) is valid
+    if (SCB->CFSR & SCB_CFSR_MMARVALID_Msk) {
+        saved_fault_type[core_id] = FAULT_MMARVALID;
+        saved_fault_addr[core_id] = SCB->MMFAR;
+        saved_fault_pc[core_id] = frame->pc;
+        saved_fault_frame[core_id] = frame;
+
+        // Hijack PC to jump to trampoline
+        frame->pc = (uint32_t)&vmm_fault_trampoline | 1;
+
+        // Clear the exception bit
+        SCB->CFSR |= SCB_CFSR_MMARVALID_Msk;
+        return;
+    }
+
+    while(1) {
+        sleep_ms(1000);
+        printf("Memory fault! Unknown Address. Time to spinlock!\n");
+        ws2812_send_pixel(0,0,255);
+    }
+}
+
+
+extern "C" uint32_t vmm_fault_handler_thread_mode(void) {
+    uint32_t core_id = get_core_num();
+    StackFrame *frame = (StackFrame *)saved_fault_frame[core_id];
+
+    // -- Handle Instruction Fetch Fault --
+    if (saved_fault_type[core_id] == FAULT_IACCVIOL) {
+        uintptr_t faulted_physical_pc = saved_fault_pc[core_id];
 
         // Find the frame that the CPU thought it was entering
         uint32_t previous_frame_idx = (faulted_physical_pc - (uintptr_t)vmm.sram_frames) / PAGE_SIZE - 1;
@@ -111,45 +180,62 @@ void MemManage_Handler_C(StackFrame *frame) {
         // Calculate the NEW virtual address the PC wants to execute
         uint32_t new_virtual_addr = previous_virtual_page + PAGE_SIZE;
 
-        // Load the page
+        // Safely load the page in Thread Mode
         vmm.access(new_virtual_addr, false);
         uintptr_t new_physical_addr = vmm.get_physical_ptr(new_virtual_addr);
 
         // Enable execution + access of the at the new address
         set_addr_exec(0, new_physical_addr, new_physical_addr + PAGE_SIZE, true);
 
-        // Update the stacked PC so when the exception returns, it branches
-        // to the top of the correct physical frame.
-        frame->pc = new_physical_addr | (faulted_physical_pc & 0x01);
-
-        // Clear the exceotion bit
-        SCB->CFSR |= SCB_CFSR_IACCVIOL_Msk;
-        return;
+        // Return the NEW target PC so the assembly trampoline jumps directly to it
+        return new_physical_addr | (faulted_physical_pc & 0x01);
     }
-
-    // Check if the MMFAR (Fault Address Register) is valid
-    if (SCB->CFSR & SCB_CFSR_MMARVALID_Msk) {
-        uint32_t fault_address = SCB->MMFAR;
+    
+    // -- Handle Data Access Fault --
+    else if (saved_fault_type[core_id] == FAULT_MMARVALID) {
+        uint32_t fault_address = saved_fault_addr[core_id];
 
         // Get the register holding the faulty address
-        uint8_t faulting_reg_index = decode_instruction_base_register(frame->pc);
+        uint8_t faulting_reg_index = decode_instruction_base_register(saved_fault_pc[core_id]);
 
-        // Get the register pointer
+        // Get the register pointer (modifying the stacked frame directly)
         uint32_t *target_reg = get_reg_ptr(frame, faulting_reg_index);
 
         if (target_reg != NULL) {
-            vmm.access(fault_address);   // Make sure the page is resident( load it if not. )
-            uintptr_t physical_addr = vmm.get_physical_ptr(fault_address);   // Get the address of the frame
+            // Safely load the page in Thread Mode
+            vmm.access(fault_address);   
+            uintptr_t physical_addr = vmm.get_physical_ptr(fault_address);   
+            
+            // Update the register in the stacked frame
             *target_reg = physical_addr;
         }
 
-        // Clear the MMFAR valid bit so it doesn't immediantly refire
-        SCB->CFSR |= SCB_CFSR_MMARVALID_Msk;
-        return;
-    } else {
-        while(1) {
-            sleep_ms(1000);
-            printf("Memory fault! Unknown Address. Time to spinlock!\n");
-        }
+        // Return the ORIGINAL target PC to retry the instruction
+        return saved_fault_pc[core_id] | 1; 
     }
+
+    // Fallback: Retry instruction if something goes weird
+    return saved_fault_pc[core_id] | 1;
+}
+
+// vmm.access will overwrite the registers, so we use naked to manually push the registers back.
+__attribute__((naked)) void vmm_fault_trampoline(void) {
+    __asm volatile (
+        // Make 4 bytes of room on the stack to hold our eventual target PC
+        " sub sp, sp, #4 \n"
+
+        " push {r0-r3, r12, lr} \n"
+
+        // Call the C function. When it finishes, R0 will contain the target PC.
+        " bl vmm_fault_handler_thread_mode \n"
+
+        // Store the returned target PC into the dummy space we made.
+        // (Pushed 6 registers = 24 bytes, so the dummy space is at SP + 24)
+        " str r0, [sp, #24] \n"
+
+        " pop {r0-r3, r12, lr} \n"
+
+        // Pop the target PC directly into the PC!
+        " pop {pc} \n"
+    );
 }

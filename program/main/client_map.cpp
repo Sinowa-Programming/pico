@@ -5,6 +5,8 @@
 #include "hardware/sync.h"
 #include "RP2350.h"
 
+#include "debug_led.h"
+
 // Limit visibility to only this file
 namespace {
     CLIENT::main_func_t client_main = nullptr;
@@ -40,10 +42,35 @@ void CLIENT::load_frame(uintptr_t physical_addr) {
 }
 
 void CLIENT::client_task(void* pvParameters) {
-    // Load frame 0 busy loop
-    // Pass the address of frame 0 (not its first byte)
-    load_frame((uintptr_t)vmm.sram_frames[0]);
+    while (get_core_num() != 1) {
+        vTaskDelay(1);
+    }
 
-    client_main();  // execute the code
+    // Make sure the MPU is enabled for Core1 (or whatever core the task is on).
+    configure_rp2350_mpu();
+    // If a frame has not been loaded via the control path, fall back
+    // to frame 0. Normally the loader will call `load_frame()` prior
+    // to starting the task so we avoid unconditionally overwriting
+    // the prepared entry point here.
+    // if (client_main == nullptr) {
+    //     load_frame((uintptr_t)vmm.sram_frames[0]);
+    // }
+
+    // client_main();  // execute the code
+
+    while(1) {
+        char *log = "Hello from the client program run block!";
+        MemoryRequest req = {
+            .op = MemoryOp::LOG,
+            .buffer = (uint8_t *)log,
+        };
+        external_memory.submit_request(req);
+
+        ws2812_send_pixel(0,0,255);
+        sleep_ms(1000);
+        ws2812_send_pixel(0,0,0);
+        sleep_ms(1000);
+    }
+
     vTaskDelete(NULL);
 }

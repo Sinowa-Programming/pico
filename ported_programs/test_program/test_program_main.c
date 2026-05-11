@@ -10,7 +10,11 @@ int test_program_main(int argc, char *argv[])
     
     // Allocation Test
     printf("Starting with allocation test.");
-    uint8_t *arr = (uint8_t)malloc(sizeof(uint8_t) * TST_PAGE_SIZE * TST_PAGE_CNT);
+    uint8_t *arr = (uint8_t *)malloc(sizeof(uint8_t) * TST_PAGE_SIZE * TST_PAGE_CNT);
+    if (arr == NULL) {
+        printf("malloc failed\n");
+        return -1;
+    }
     
     printf("Pages allocated. Now accessing every byte in the cell.");
     for(int i = 0; i < TST_PAGE_SIZE * TST_PAGE_CNT; i++) {

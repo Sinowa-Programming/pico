@@ -26,14 +26,11 @@ void usb_command_task(void *param) {
         if (xQueueReceive(usb_command_queue, &cmd, portMAX_DELAY) == pdTRUE) {
             switch (cmd.cmd) {
                 case START_CLIENT:
-                    blink_binary_32(cmd.vaddr);
                     // Make the new address resident (may block waiting for external memory)
                     vmm.access(cmd.vaddr, false);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
                     CLIENT::start_client_task();
-                    ws2812_send_pixel(119, 7, 122); // Pink
                     vprintf("Starting client task...");
-                    sleep_ms(1000);
                     break;
                 default:
                     break;
@@ -75,7 +72,7 @@ void usb_device_task(void *param) {
     while (1) {
         // tud_task() is now blocking because of CFG_TUSB_OS
         tud_task();
-        ws2812_send_pixel(100,100,100);
+        // ws2812_send_pixel(100,100,100);
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
@@ -96,7 +93,6 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
 // ==========================================================
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
-    ws2812_send_pixel(255, 94, 0);  // Orange
 
     // Ensure we have at least the header (MCU_ID + CMD)
     if (bufsize < 2) return;
@@ -115,13 +111,11 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             external_memory.notify_transfer_completion();
         }
         tud_vendor_read_flush();
-        ws2812_send_pixel(0, 0, 0);
         return;
     }
 
     uint8_t command = buffer[1];
 
-    // blink_binary(command);
 
     switch (command)
     {
@@ -186,11 +180,10 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
     }
     tud_vendor_read_flush();
-    ws2812_send_pixel(0, 0, 0);
 }
 
 
-void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
-    ws2812_send_pixel(0,0,255);
-    sleep_ms(1000);
-}
+// void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
+//     ws2812_send_pixel(0,0,255);
+//     sleep_ms(1000);
+// }

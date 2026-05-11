@@ -199,13 +199,14 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 
         // Move to MRU (front of list)
         update_lru_access(finished_req->arg2);
-
-        vTaskResume(finished_req->task);
     }
     else if (finished_req->op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
         clear_page(finished_req->arg1, false);
     } else if (finished_req->op == MemoryOp::ALLOC) {
         // There should be space if it reaches this point
+    }
+
+    if(finished_req->task) {
         xTaskNotifyGive(finished_req->task);
     }
 
@@ -223,11 +224,19 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     xSemaphoreTake(vmmMutex, portMAX_DELAY);
     // Check if resident. If not, trigger swap-in logic
     if (!is_resident.get(page_id)) {
-        // Suspend the task and send the write request
+        // Select an available physical frame and tell the external memory
+        // to place the requested page into that frame's buffer.
+        uint8_t frame = get_available_frame();
+
+        // Reserve mapping early so other code knows where the page will live
+        page_to_frame[page_id] = frame;
+        frame_to_page[frame] = page_id;
+
         MemoryRequest req = {
             .op = MemoryOp::READ,
             .arg1 = page_id,     // The virtual page being loaded in
-            .buffer = sram_frames[page_to_frame[page_id]],
+            .arg2 = frame,       // Provide the target physical frame index
+            .buffer = sram_frames[frame],
             .task = xTaskGetCurrentTaskHandle()
         };
         req.req = &req;
@@ -240,7 +249,6 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
         frame_idx = req.arg2;
     } else {
         frame_idx = page_to_frame[page_id];
-        ws2812_send_pixel(0, 255, 255); // Purple
     }
     update_lru_access(frame_idx);
 

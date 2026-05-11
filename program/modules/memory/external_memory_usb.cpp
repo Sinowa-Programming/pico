@@ -29,7 +29,6 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req->arg1), sizeof(uint32_t));
-                    ws2812_send_pixel(0, 255, 0); // Green
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
                     // Notify internal memory that the page has been provided via rx_buffer
                     internal_memory->notify_completion(active_req);
