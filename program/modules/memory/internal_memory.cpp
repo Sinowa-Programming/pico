@@ -3,26 +3,34 @@
 #include <cstring>
 
 #include "debug_led.h"
+#include "pal.h"    // For vprintf
 
-void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
-{
-    // If the page is dirty, you can't remove it yet, write the page to external memory and handle it when it has been copied out
-    uint8_t frame_idx = page_to_frame[page_id];
-
-    if(is_dirty.get(page_id)) {
-        MemoryRequest req = {
-            .op = MemoryOp::WRITE,
-            .arg1 = frame_to_page[frame_idx],               // The virtual page being moved
-            .buffer = sram_frames[page_to_frame[page_id]]   // The sram frame
-        };
-        _external_memory->submit_request(req);
-        if(block_until_cleared) {
-            vTaskSuspend(NULL);
-        } else {
-            return; // Just be a lazy clear( not used anymore so who cares? Just remove it when you have time.)
-        }
+void VMM::report_mutex_status() {
+    if (vmmMutex == NULL) {
+        // Mutex hasn't been created yet or memory was corrupted
+        ws2812_send_pixel(0, 255, 255); // Red for Error/Null
+        return;
     }
 
+    // uxSemaphoreGetCount returns 1 if available, 0 if taken
+    if (uxSemaphoreGetCount(vmmMutex) == 1) {
+        // Available: Orange (R=255, G=165, B=0)
+        ws2812_send_pixel(255, 165, 0);
+    } else {
+        // Taken: Red (R=255, G=0, B=0)
+        ws2812_send_pixel(255, 0, 0);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ws2812_send_pixel(0, 0, 0);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+}
+
+void VMM::clear_page(uint32_t page_id)
+{
+    uint8_t frame_idx = page_to_frame[page_id];
+
+    // Wipe mappings instantly
     memset(sram_frames[frame_idx], 0, PAGE_SIZE);
     is_resident.clear(page_id);
     is_dirty.clear(page_id);
@@ -33,22 +41,31 @@ void VMM::clear_page(uint32_t page_id, bool block_until_cleared)
     --num_occupied_frames;
 }
 
-uint8_t VMM::get_available_frame() {
+uint8_t VMM::get_available_frame(bool* is_page_dirty, uint32_t* page_to_write) {
+    *is_page_dirty = false;
     uint32_t frame;
+
     if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
-        // RAM is not full: Use the first empty slot
         frame = num_occupied_frames;
         num_occupied_frames++;
     } else {
-        // RAM is full
-        // Find a slot that isn't dirty so it can be immediately overwritten.
         frame = is_dirty.find_first_zero();
+
         if(frame == -1) {
-            // Remove the last page and wait until it is removed
-            clear_page(frame_to_page[MAX_PHYSICAL_FRAMES - 1], true);
+            // RAM is full and all frames are dirty. Evict the LRU frame.
             frame = MAX_PHYSICAL_FRAMES - 1;
+            *page_to_write = frame_to_page[frame];
+            *is_page_dirty = true; // Signal the caller to block
+
+            // Instantly unmap metadata so no other task can grab it
+            is_resident.clear(*page_to_write);
+            is_dirty.clear(*page_to_write);
+            page_to_frame[*page_to_write] = -1;
+            frame_to_page[frame] = 0xFFFFFFFF;
+
         } else {
-            clear_page(frame_to_page[frame], false);
+            // It's a clean frame, just wipe the metadata safely
+            clear_page(frame_to_page[frame]);
         }
     }
     return frame;
@@ -148,17 +165,18 @@ void VMM::run()
             // Proactive Booting:
             // If age == 255 and NOT dirty, we can clear it to make room
             // We are not going to clear dirty frames as it will be accessed again.
-            uint32_t p_id = frame_to_page[i];
-            if (p_id != 0xFFFFFFFF && !is_dirty.get(p_id)) {
-                clear_page(p_id, false);
-            }
+            // uint32_t p_id = frame_to_page[i];
+            // if (p_id != 0xFFFFFFFF && !is_dirty.get(p_id)) {
+            //     clear_page(p_id);
+            // }
         }
         xSemaphoreGive(vmmMutex);
     }
 }
 
 VMM::VMM() {
-    vmmMutex = xSemaphoreCreateMutex();
+    vmmMutex = xSemaphoreCreateBinary();
+    xSemaphoreGive(vmmMutex);
 
     for(int i = 0; i < NUM_PAGES; i++) page_to_frame[i] = -1;
     for(int i = 0; i < MAX_PHYSICAL_FRAMES; i++) {
@@ -179,7 +197,7 @@ void VMM::start() {
         xTaskCreate(
             vmmTaskWrapper, // The static bridge
             "VMM_Task",
-            4096,
+            8192,
             this,           // Pass 'this' so the task knows which instance to use
             tskIDLE_PRIORITY + 1,
             &vmmTaskHandle
@@ -201,7 +219,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
         update_lru_access(finished_req->arg2);
     }
     else if (finished_req->op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
-        clear_page(finished_req->arg1, false);
+        // clear_page(finished_req->arg1, false);
     } else if (finished_req->op == MemoryOp::ALLOC) {
         // There should be space if it reaches this point
     }
@@ -226,41 +244,57 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     if (!is_resident.get(page_id)) {
         // Select an available physical frame and tell the external memory
         // to place the requested page into that frame's buffer.
-        uint8_t frame = get_available_frame();
 
-        // Reserve mapping early so other code knows where the page will live
+        // Find a frame and check if it needs to be flushed
+        bool does_page_need_to_write;
+        uint32_t page_to_write;
+        uint8_t frame = get_available_frame(&does_page_need_to_write, &page_to_write);
+
+        if (does_page_need_to_write) {
+            MemoryRequest write_req = {
+                .op = MemoryOp::WRITE,
+                .arg1 = page_to_write,
+                .buffer = sram_frames[frame],
+                .task = xTaskGetCurrentTaskHandle()
+            };
+            write_req.req = &write_req;
+            
+            xSemaphoreGive(vmmMutex);
+            _external_memory->submit_request(write_req);
+            report_mutex_status();
+            // Suspend the task. When it is woken up, the page will be in local memory
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            xSemaphoreTake(vmmMutex, portMAX_DELAY);
+        }
+
+        // Reserve mapping early so other tasks knows where the page will live
         page_to_frame[page_id] = frame;
         frame_to_page[frame] = page_id;
+        xSemaphoreGive(vmmMutex);
 
-        MemoryRequest req = {
+        MemoryRequest read_req = {
             .op = MemoryOp::READ,
-            .arg1 = page_id,     // The virtual page being loaded in
-            .arg2 = frame,       // Provide the target physical frame index
+            .arg1 = page_id,    // The page id to read
+            .arg2 = frame,      // The frame it will live in...Why is this here? TODO: Investigate whether arg2 is necessary
             .buffer = sram_frames[frame],
             .task = xTaskGetCurrentTaskHandle()
         };
-        req.req = &req;
-        _external_memory->submit_request(req);
+        read_req.req = &read_req;
+        _external_memory->submit_request(read_req);
 
-        char log[256];
-        snprintf(log, sizeof(log), "Relative Address: 0x%x\nPage ID: %u", relative_addr, page_id);
-        MemoryRequest treq = {
-            .op = MemoryOp::LOG,
-            .buffer = sram_frames[frame],
-        };
-        _external_memory->submit_request(treq);
 
-        // Suspend the task. When it is woken up, the page will be in local memory
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        _vprintf("Relative Address: 0x%x\nPage ID: %u", relative_addr, page_id);
 
-        // The memory request has been fulfilled.
-        frame_idx = req.arg2;
+        xSemaphoreTake(vmmMutex, portMAX_DELAY);
+        frame_idx = read_req.arg2;
     } else {
         frame_idx = page_to_frame[page_id];
     }
     update_lru_access(frame_idx);
 
     // For now, I am assuming that all accessed data is dirty
+    ws2812_send_pixel(255,0,0);
     is_dirty.set(page_id);
     xSemaphoreGive(vmmMutex);
 

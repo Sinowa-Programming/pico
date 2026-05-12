@@ -59,14 +59,7 @@ void CLIENT::client_task(void* pvParameters) {
 
 
     while(1) {
-        // const char *log = "Hello from the client program run block!";
-        // MemoryRequest req = {
-        //     .op = MemoryOp::LOG,
-        //     .buffer = (uint8_t *)log,
-        // };
-        // external_memory.submit_request(req);
-
-        _vprintf("Hello from the client program run block!");
+        _vprintf("Program has finished!");
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

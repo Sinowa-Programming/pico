@@ -15,6 +15,7 @@ TaskHandle_t usb_device_task_tcb;
 typedef struct {
     uint8_t cmd;
     uint32_t vaddr;
+    void *buffer;
 } UsbCommand_t;
 static QueueHandle_t usb_command_queue = NULL;
 TaskHandle_t usb_command_task_tcb = NULL;
@@ -27,15 +28,11 @@ void usb_command_task(void *param) {
             switch (cmd.cmd) {
                 case START_CLIENT: {
                     // Make the new address resident (may block waiting for external memory)
+                    ws2812_send_pixel(255,255,255);
                     vmm.access(cmd.vaddr, false);
-                    CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
-                    CLIENT::start_client_task();
-                    const char *log = "Starting client program...";
-                    MemoryRequest req = {
-                        .op = MemoryOp::LOG,
-                        .buffer = (uint8_t *)log,
-                    };
-                    external_memory.submit_request(req);
+                    _vprintf("After vmm access");
+                    // CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
+                    // CLIENT::start_client_task();
                     break;
                 }
                 default:
@@ -60,7 +57,7 @@ void usb_comm_setup() {
     vTaskCoreAffinitySet(usb_device_task_tcb, SYSTEM_CORE_AFFINITY);
 
     // Create queue and command task to avoid blocking the USB task on memory access
-    usb_command_queue = xQueueCreate(4, sizeof(UsbCommand_t));
+    usb_command_queue = xQueueCreate(10, sizeof(UsbCommand_t));
     xTaskCreate(
         usb_command_task,
         "usb_cmd",
@@ -99,12 +96,9 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
 // ==========================================================
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
-
-    // Ensure we have at least the header (MCU_ID + CMD)
-    if (bufsize < 2) return;
-
-    uint8_t mcu_id = buffer[0];
-    if (mcu_id != MCU_ID) return;
+    if(bufsize == 0)  {
+        return;
+    }
 
     // If we are already receiving a page, treat this entire packet as data
     if (data_receiving) {
@@ -113,15 +107,23 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
         if (transfer_offset >= PAGE_SIZE) {
             // Transfer Complete!
             data_receiving = false;
-
             external_memory.notify_transfer_completion();
         }
         tud_vendor_read_flush();
         return;
     }
 
-    uint8_t command = buffer[1];
+    // Ensure we have at least the header (MCU_ID + CMD)
+    if (bufsize < 4) {
+        return;
+    }
 
+    uint8_t mcu_id = buffer[0];
+    if (mcu_id != MCU_ID) {
+        return;
+    }
+
+    uint8_t command = buffer[1];
 
     switch (command)
     {
@@ -130,9 +132,15 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             transfer_offset = 0;
             data_receiving = true;
 
-            // Handle payload included in THIS packet (after the 2 header bytes)
+            // Handle payload included in THIS packet (after the 4 header bytes)
             if (bufsize > 4) {
                 buffer_data_chunk(buffer + 4, bufsize - 4);
+            }
+
+            // Check if the entire payload somehow arrived in the first packet
+            if (transfer_offset >= PAGE_SIZE) {
+                data_receiving = false;
+                external_memory.notify_transfer_completion();
             }
             break;
 
@@ -149,9 +157,6 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             if (usb_command_queue != NULL) {
                 UsbCommand_t cmd = { .cmd = START_CLIENT, .vaddr = vaddr };
                 BaseType_t ok = xQueueSend(usb_command_queue, &cmd, 0);
-                if (ok != pdTRUE) {
-                    // Queue full;
-                }
             }
             break;
         }

@@ -17,8 +17,6 @@ volatile StackFrame* saved_fault_frame[2]; // So thread mode can modify the stac
 
 extern "C" void vmm_fault_trampoline(void);
 
-extern "C" void vmm_fault_trampoline(void);
-
 void configure_rp2350_mpu()
 {
     // The Memory Attribute Indirection Registers need to be setup before any regions can be setup.
@@ -126,6 +124,7 @@ inline static uint32_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
 // This name is a standard CMSIS defined exception handler.
 // The linker automatically maps it to the vector table.
 void MemManage_Handler_C(StackFrame *frame) {
+    ws2812_send_pixel(0,0,255);
     uint32_t core_id = get_core_num();
 
     // Check for Instruction Fetch Fault (PC ticked over the frame boundary)
@@ -160,7 +159,7 @@ void MemManage_Handler_C(StackFrame *frame) {
     while(1) {
         sleep_ms(1000);
         // printf("Memory fault! Unknown Address. Time to spinlock!\n");
-        ws2812_send_pixel(0,0,255);
+        ws2812_send_pixel(255,0,0);
         sleep_ms(1000);
         ws2812_send_pixel(0,0,0);
     }
@@ -168,6 +167,7 @@ void MemManage_Handler_C(StackFrame *frame) {
 
 
 extern "C" uint32_t vmm_fault_handler_thread_mode(void) {
+    ws2812_send_pixel(0,0,255);
     uint32_t core_id = get_core_num();
     StackFrame *frame = (StackFrame *)saved_fault_frame[core_id];
 

@@ -30,8 +30,6 @@ void ExternalMemory::run() {
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req->arg1), sizeof(uint32_t));
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-                    // Notify internal memory that the page has been provided via rx_buffer
-                    internal_memory->notify_completion(active_req);
                     break;
                 }
 
@@ -61,7 +59,6 @@ void ExternalMemory::run() {
 
                     // Get the virtual address
                     active_req->arg1 = (uint32_t)rx_buffer;
-                    internal_memory->notify_completion(active_req);
                     break;
                 }
 
@@ -170,9 +167,11 @@ void ExternalMemory::run() {
             }
 
             if(active_req->task != NULL) {
-                xTaskNotifyGive(active_req->task);
+                // xTaskNotifyGive(active_req->task);
+                // Notify internal memory that the page has been provided via rx_buffer
+                internal_memory->notify_completion(active_req->req);
             }
-            
+
             // Clean up the dynamically allocated copy
             vPortFree(active_req);
         }
@@ -182,10 +181,11 @@ void ExternalMemory::run() {
 ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
     mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest *));
     setup_dma();
+    this->internal_memory = internal_memory;
 }
 
 void ExternalMemory::start() {
-    xTaskCreate(task_entry, "USB_DMA_VMM", 4096, this, configMAX_PRIORITIES - 1, &run_task);
+    xTaskCreate(task_entry, "USB_DMA_VMM", 8192, this, configMAX_PRIORITIES - 1, &run_task);
     vTaskCoreAffinitySet(run_task, SYSTEM_CORE_AFFINITY);
 }
 

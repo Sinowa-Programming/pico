@@ -14,6 +14,8 @@ extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address,
 class ExternalMemory;
 
 class VMM {
+    void report_mutex_status();
+
     // File
     queue_t file_lru_fifo;    // Simple LRU to evict an unused file. Each entry is index(file_data)
     VirtualFile file_data[MAX_VIRTUAL_FILES];
@@ -36,8 +38,8 @@ class VMM {
 
     ExternalMemory *_external_memory;
 
-    void clear_page(uint32_t page_id, bool block_until_cleared);
-    uint8_t get_available_frame();  // Returns the first available frame's index( Will boot a page is needed. )
+    void clear_page(uint32_t page_id);
+    uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
     /* === MPU CODE === */
     /* Only MPU Regions 1-7 are used by the access code. Region 0 is for the current frame the program counter is in.*/
