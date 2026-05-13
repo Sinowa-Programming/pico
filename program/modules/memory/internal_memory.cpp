@@ -71,18 +71,10 @@ uint8_t VMM::get_available_frame(bool* is_page_dirty, uint32_t* page_to_write) {
     return frame;
 }
 
-void VMM::update_mpu_access(uint16_t frame_to_enable, bool executable)
+void VMM::update_mpu_access(uint16_t frame_to_enable)
 {
     // If the MPU has already enabled access, do nothing.
     if (mpu_enabled.get(frame_to_enable)) {
-        return;
-    }
-
-    // If this frame is an executable, use MPU region 0 directly.
-    if (executable) {
-        uint32_t base_addr = (uint32_t)sram_frames[frame_to_enable];
-        set_addr_nexec(0, base_addr, base_addr + PAGE_SIZE, true);
-        mpu_enabled.set(frame_to_enable);
         return;
     }
 
@@ -94,7 +86,7 @@ void VMM::update_mpu_access(uint16_t frame_to_enable, bool executable)
         mpu_enabled.clear(region_frame[1]);
     } else {
         // Add a new region to the list
-        region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
+        region_frame[0] = mpu_region_frame_fifo.element_count;  // Starts at 0. 8 regions (0 - 7).
     }
 
     // Replace the old region number's frame with the new frame
@@ -104,7 +96,7 @@ void VMM::update_mpu_access(uint16_t frame_to_enable, bool executable)
 
     // Enable access to the new frame
     uint32_t base_addr = get_physical_ptr(frame_to_enable);
-    set_addr_nexec(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
+    set_addr_exec(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -232,7 +224,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 }
 
 
-void VMM::access(uint32_t virtual_addr, bool update_mpu) {
+void VMM::access(uint32_t virtual_addr) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
     uint32_t page_id = relative_addr / PAGE_SIZE;
@@ -284,7 +276,6 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
 
 
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        _vprintf("Relative Address: 0x%x\nPage ID: %u", relative_addr, page_id);
 
         xSemaphoreTake(vmmMutex, portMAX_DELAY);
         frame_idx = read_req.arg2;
@@ -294,16 +285,11 @@ void VMM::access(uint32_t virtual_addr, bool update_mpu) {
     update_lru_access(frame_idx);
 
     // For now, I am assuming that all accessed data is dirty
-    ws2812_send_pixel(255,0,0);
     is_dirty.set(page_id);
     xSemaphoreGive(vmmMutex);
 
     // Enable the frame access
-    if(update_mpu) {
-        update_mpu_access(frame_idx);
-    } else {
-        update_mpu_access(frame_idx, true);
-    }
+    update_mpu_access(frame_idx);
 }
 
 

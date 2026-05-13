@@ -42,10 +42,14 @@ class VMM {
     uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
     /* === MPU CODE === */
-    /* Only MPU Regions 1-7 are used by the access code. Region 0 is for the current frame the program counter is in.*/
+    /* Only MPU Regions 0-7 are used by the access code..*/
     queue_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
     FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.
-    void update_mpu_access(uint16_t frame_to_enable, bool executable = false);
+
+    /// @brief Updates the rp2350 MPU. It cycles through frame regions in a lru-style policy, where only the 7 recently accessed frames are
+    ///        allowed access. Other frames require a MemManage Fault (MPU Fault) to transfer mpu access.
+    /// @param frame_to_enable The frame that access (including execution) will be granted to.
+    void update_mpu_access(uint16_t frame_to_enable);
     /* =========== */
 
     // ==== LRU code ====
@@ -78,9 +82,7 @@ public:
 
     /// @brief Loads the given address into memory and enables access to it. This is a blocking operation currently. The task will be suspended until it is finished.
     /// @param virtual_addr The virtual memory address of the access
-    /// @param update_mpu Tells the MPU to enable access to the newly loaded frame using regions 1 - 7. Will update region 0 if false.
-    /// @return The frame idx that contains the data.
-    void access(uint32_t virtual_addr, bool update_mpu = true);
+    void access(uint32_t virtual_addr);
 
     uintptr_t get_physical_ptr(uint32_t virtual_addr);
 

@@ -183,7 +183,7 @@ extern "C" uint32_t vmm_fault_handler_thread_mode(void) {
         uint32_t new_virtual_addr = previous_virtual_page + PAGE_SIZE;
 
         // Safely load the page in Thread Mode
-        vmm.access(new_virtual_addr, false);
+        vmm.access(new_virtual_addr);
         uintptr_t new_physical_addr = vmm.get_physical_ptr(new_virtual_addr);
 
         // Enable execution + access of the at the new address

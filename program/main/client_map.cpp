@@ -53,15 +53,15 @@ void CLIENT::client_task(void* pvParameters) {
     // to starting the task so we avoid unconditionally overwriting
     // the prepared entry point here.
     if (client_main != nullptr) {
-        load_frame((uintptr_t)vmm.sram_frames[0]);
+        ws2812_send_pixel(100,100,100);
         client_main();  // execute the code
     }
 
 
     while(1) {
-        _vprintf("Program has finished!");
+        _vprintf("Hello from test_program_main!");
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        _vsleep(1000);
     }
 
     vTaskDelete(NULL);
