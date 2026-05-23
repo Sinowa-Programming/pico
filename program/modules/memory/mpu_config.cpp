@@ -54,46 +54,60 @@ void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_addr
     taskEXIT_CRITICAL();
 }
 
+extern "C" void __real_MemManage_Handler(void); // The untouched FreeRTOS handler
+extern "C" bool VMM_MemManage_Handler_C(StackFrame *frame);
+
 // Tell the compiler not to generate standard prologue/epilogue
-__attribute__((naked)) void MemManage_Handler(void) {
+__attribute__((naked)) void __wrap_MemManage_Handler(void) {
     __asm volatile (
-        // 1. Determine which stack was in use before the fault
-        // LR (EXC_RETURN) bit 2 indicates if we came from MSP (0) or PSP (1)
-        // #4 isolates bit 2 to determine the EXC_RETURN
+        // 1. Find faulting stack pointer (r0) before we modify anything
         " tst lr, #4                                \n"
         " ite eq                                    \n"
         " mrseq r0, msp                             \n"
         " mrsne r0, psp                             \n"
 
-        // 2. Push R4-R11 onto that stack to complete the frame
-        // stmdb (Store Multiple Decrement Before) grows the stack downwards
+        // 2. Push r4-r11 onto the FAULTING stack to complete the frame
         " stmdb r0!, {r4-r11}                       \n"
 
-        // 3. Update the actual stack pointer so it's saved
+        // 3. Update the faulting stack pointer
         " tst lr, #4                                \n"
         " ite eq                                    \n"
         " msreq msp, r0                             \n"
         " msrne psp, r0                             \n"
 
-        // 4. r0 now points to the bottom of our FullStackFrame. Call C.
-        " bl MemManage_Handler_C                    \n"
+        // 4. Save the EXC_RETURN value (LR) onto the CURRENT stack (always MSP in handler)
+        " push {lr}                                 \n"
 
-        // 5. C is done. Get the stack pointer back into r0.
+        // 5. r0 holds the frame pointer. Call your C logic.
+        " bl VMM_MemManage_Handler_C                \n"
+
+        // 6. Restore EXC_RETURN to LR
+        " pop {lr}                                  \n"
+
+        // 7. Get the faulting stack pointer back into r1
         " tst lr, #4                                \n"
         " ite eq                                    \n"
-        " mrseq r0, msp                             \n"
-        " mrsne r0, psp                             \n"
+        " mrseq r1, msp                             \n"
+        " mrsne r1, psp                             \n"
 
-        // 6. Pop R4-R11 off the stack to update the hardware registers
-        " ldmia r0!, {r4-r11}                       \n"
+        // 8. Restore r4-r11 to the hardware
+        " ldmia r1!, {r4-r11}                       \n"
 
-        // 7. Update the stack pointer back to where the hardware expects it
+        // 9. Update the faulting stack pointer
         " tst lr, #4                                \n"
         " ite eq                                    \n"
-        " msreq msp, r0                             \n"
-        " msrne psp, r0                             \n"
+        " msreq msp, r1                             \n"
+        " msrne psp, r1                             \n"
 
-        // 8. Return from exception (CPU pops R0-R3, R12, LR, PC, xPSR)
+        // 10. Did VMM handle it? (C function returns 1 for true, 0 for false in r0)
+        " cmp r0, #1                                \n"
+        " beq vmm_handled_exit                      \n"
+
+        // 11. If false, jump to the real FreeRTOS handler. 
+        // CPU state (including EXC_RETURN in LR) is exactly as it was when the fault hit.
+        " b __real_MemManage_Handler                \n"
+
+        " vmm_handled_exit:                         \n"
         " bx lr                                     \n"
     );
 }
@@ -123,7 +137,7 @@ inline static uint32_t* get_reg_ptr(StackFrame *frame, uint8_t reg_index) {
 
 // This name is a standard CMSIS defined exception handler.
 // The linker automatically maps it to the vector table.
-void MemManage_Handler_C(StackFrame *frame) {
+extern "C" bool VMM_MemManage_Handler_C(StackFrame *frame) {
     ws2812_send_pixel(0,0,255);
     uint32_t core_id = get_core_num();
 
@@ -138,7 +152,7 @@ void MemManage_Handler_C(StackFrame *frame) {
 
         // Clear the exception bit
         SCB->CFSR |= SCB_CFSR_IACCVIOL_Msk;
-        return;
+        return true;
     }
 
     // Check if the MMFAR (Fault Address Register) is valid
@@ -153,16 +167,11 @@ void MemManage_Handler_C(StackFrame *frame) {
 
         // Clear the exception bit
         SCB->CFSR |= SCB_CFSR_MMARVALID_Msk;
-        return;
+        return true;
     }
 
-    while(1) {
-        sleep_ms(1000);
-        // printf("Memory fault! Unknown Address. Time to spinlock!\n");
-        ws2812_send_pixel(255,0,0);
-        sleep_ms(1000);
-        ws2812_send_pixel(0,0,0);
-    }
+    // Unhandled memory fault. Let FreeRTOS handle it.
+    return false;
 }
 
 

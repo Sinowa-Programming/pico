@@ -10,6 +10,15 @@
 // Limit visibility to only this file
 namespace {
     CLIENT::main_func_t client_main = nullptr;
+
+    StackType_t client_task_stack[CLIENT::CLIENT_TASK_STACK_SIZE] __attribute__((aligned(32)));
+
+    // Define the initial MPU regions for the task (VMM will populate them)
+    const MemoryRegion_t initial_regions[portNUM_CONFIGURABLE_REGIONS] = {
+        { 0, 0, 0 },
+        { 0, 0, 0 },
+        { 0, 0, 0 }
+    };
 }
 
 TaskHandle_t CLIENT::client_task_tcb = NULL;
@@ -20,15 +29,21 @@ void CLIENT::start_client_task() {
         vTaskDelete(client_task_tcb);
     }
 
-    xTaskCreate(
-        client_task,
-        "client_task",
-        CLIENT_TASK_STACK_SIZE,
-        NULL,
-        CLIENT_PRIORITY,
-        &client_task_tcb
-    );
+    TaskParameters_t client_task_parameters = {
+        .pvTaskCode = client_task,
+        .pcName = "client_task",
+        .usStackDepth = CLIENT_TASK_STACK_SIZE,
+        .pvParameters = NULL,
+        .uxPriority = CLIENT_PRIORITY | portPRIVILEGE_BIT, // Remove privilege bit for user mode
+        .puxStackBuffer = client_task_stack,
+        .xRegions = {
+            initial_regions[0],
+            initial_regions[1],
+            initial_regions[2]
+        }
+    };
 
+    xTaskCreateRestricted(&client_task_parameters, &client_task_tcb);
     vTaskCoreAffinitySet(client_task_tcb, CLIENT_CORE_AFFINITY);
 }
 
@@ -46,12 +61,7 @@ void CLIENT::client_task(void* pvParameters) {
         vTaskDelay(1);
     }
 
-    // Make sure the MPU is enabled for Core1 (or whatever core the task is on).
-    configure_rp2350_mpu();
-    // If a frame has not been loaded via the control path, fall back
-    // to frame 0. Normally the loader will call `load_frame()` prior
-    // to starting the task so we avoid unconditionally overwriting
-    // the prepared entry point here.
+    // It is expected that a program has been loaded using load_frame
     if (client_main != nullptr) {
         ws2812_send_pixel(100,100,100);
         client_main();  // execute the code

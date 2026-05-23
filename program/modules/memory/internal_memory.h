@@ -42,6 +42,8 @@ class VMM {
     uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
     /* === MPU CODE === */
+    MemoryRegion_t active_mpu_regions[portNUM_CONFIGURABLE_REGIONS];
+
     /* Only MPU Regions 0-7 are used by the access code..*/
     queue_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
     FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.

@@ -94,9 +94,15 @@ void VMM::update_mpu_access(uint16_t frame_to_enable)
     queue_try_add(&mpu_region_frame_fifo, region_frame);
     mpu_enabled.set(frame_to_enable);   // Update the bit array
 
-    // Enable access to the new frame
     uint32_t base_addr = get_physical_ptr(frame_to_enable);
-    set_addr_exec(region_frame[0], base_addr, base_addr + PAGE_SIZE, true);
+
+    // Enable access to the new frame
+    active_mpu_regions[region_frame[0]].pvBaseAddress = (void*)base_addr;
+    active_mpu_regions[region_frame[0]].ulLengthInBytes = PAGE_SIZE;
+    active_mpu_regions[region_frame[0]].ulParameters = portMPU_REGION_READ_WRITE; // Omit EXECUTE_NEVER if execution is needed
+
+    // Update the MPU for the currently running task (or pass a specific TCB)
+    vTaskAllocateMPURegions(NULL, active_mpu_regions);
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -177,8 +183,7 @@ VMM::VMM() {
         frame_to_page[i] = 0xFFFFFFFF;
     }
 
-    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 7);  // There are 8 regions, but 1 region is being used by the active program. The rest are being accessed.
-
+    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 3);  // 3 regions available
     queue_init(&file_lru_fifo, sizeof(uint16_t), MAX_VIRTUAL_FILES);
 }
 
@@ -250,7 +255,7 @@ void VMM::access(uint32_t virtual_addr) {
                 .task = xTaskGetCurrentTaskHandle()
             };
             write_req.req = &write_req;
-            
+
             xSemaphoreGive(vmmMutex);
             _external_memory->submit_request(write_req);
             report_mutex_status();
@@ -512,7 +517,12 @@ int VMM::file_close(VirtualFile *stream) {
 
     queue_try_remove(&mpu_region_frame_fifo, region_frame);
 
-    set_addr_nexec(region_frame[0], (uint32_t)file_frames[stream->descriptor], (uint32_t)file_frames[stream->descriptor] + VIRTUAL_FILE_PAGE_SIZE, false);
+    active_mpu_regions[region_frame[0]].pvBaseAddress = NULL;
+    active_mpu_regions[region_frame[0]].ulLengthInBytes = 0;
+    active_mpu_regions[region_frame[0]].ulParameters = 0;
+
+    // Apply the updated (cleared) region to the current task
+    vTaskAllocateMPURegions(NULL, active_mpu_regions);
 
     return 0;   // 100% Success Rate :)
 }
@@ -554,6 +564,10 @@ void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
     // Replace the old region number's frame with the new frame
     queue_try_add(&mpu_region_frame_fifo, region_frame);
 
-    // Enable access to the file
-    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + VIRTUAL_FILE_PAGE_SIZE, true);
+    active_mpu_regions[region_frame[0]].pvBaseAddress = (void*)file_frame;
+    active_mpu_regions[region_frame[0]].ulLengthInBytes = VIRTUAL_FILE_PAGE_SIZE;
+    active_mpu_regions[region_frame[0]].ulParameters = portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER;
+
+    // Apply the updated regions to the current task
+    vTaskAllocateMPURegions(NULL, active_mpu_regions);
 }

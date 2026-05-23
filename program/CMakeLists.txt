@@ -22,6 +22,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/libs
 
     ${CMAKE_CURRENT_LIST_DIR}/..
+    ${CMAKE_CURRENT_LIST_DIR}/modules/freertos_patch
     ${CMAKE_CURRENT_LIST_DIR}/modules/pal
     ${CMAKE_CURRENT_LIST_DIR}/modules/communication
     ${CMAKE_CURRENT_LIST_DIR}/modules/memory
@@ -64,6 +65,10 @@ endif()
 
 target_link_options(${PROJECT_NAME} PRIVATE
     "-Wl,--no-whole-archive"
+    "-Wl,--wrap=MemManage_Handler"
+    # MPU does not have SMP support build in so I have to reroute it to my ASM patch. Need this for multicore MPU
+    "-Wl,--wrap=PendSV_Handler"
+    "-Wl,--wrap=vRestoreContextOfFirstTask"
 )
 
 pico_add_extra_outputs(${PROJECT_NAME})

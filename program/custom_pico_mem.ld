@@ -105,6 +105,31 @@ SECTIONS
         __reset_start = .;
         KEEP (*(.reset))
         __reset_end = .;
+
+        /* MODIFIED */
+        /* --- INTEGRATED FREERTOS MPU SECTIONS --- */
+
+        /* Privileged Functions */
+        . = ALIGN(32);
+        __privileged_functions_start__ = .;
+        *(privileged_functions)
+        . = ALIGN(32);
+        __privileged_functions_end__ = .;
+
+        /* Adding 32 bytes pad at the end of the region to avoid overlapping region attributes */
+        . = . + 0x20;
+
+        /* System Calls */
+        . = ALIGN(32);
+        __syscalls_flash_start__ = .;
+        *(freertos_system_calls)
+        . = ALIGN(32);
+        __syscalls_flash_end__ = .;
+
+        /* Unprivileged Flash (The rest of your code) */
+        . = ALIGN(32);
+        __unprivileged_flash_start__ = .;
+
         *(.time_critical*)
         *(.text*)
         . = ALIGN(4);
@@ -124,6 +149,8 @@ SECTIONS
         *(.dtors)
 
         *(.eh_frame*)
+        . = ALIGN(32);
+        __unprivileged_flash_end__ = .;
     } > RAM
 
     .rodata : {
@@ -159,6 +186,20 @@ SECTIONS
     . = ALIGN(4);
 
     .data : {
+        /* MODIFIED */
+        /* --- INTEGRATED FREERTOS MPU SECTIONS --- */
+        
+        /* Privileged SRAM */
+        . = ALIGN(32);
+        __privileged_sram_start__ = .;
+        *(privileged_data)
+        . = ALIGN(32);
+        __privileged_sram_end__ = .;
+
+        /* Unprivileged SRAM */
+        . = ALIGN(32);
+        __unprivileged_sram_start__ = .;
+        
         __data_start__ = .;
         *(vtable)
         *(.data*)
@@ -195,7 +236,8 @@ SECTIONS
         PROVIDE_HIDDEN (__fini_array_end = .);
 
         *(.jcr)
-        . = ALIGN(4);
+        . = ALIGN(32);
+        __unprivileged_sram_end__ = .;
    } > RAM
 
     .tdata : {
