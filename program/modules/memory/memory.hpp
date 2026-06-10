@@ -66,6 +66,9 @@ struct MemoryRequest {
     uint8_t* buffer;
     TaskHandle_t task;      // The task that owns the request
     MemoryRequest *req;     // Pointer to the address
+
+    // Flag to indicate if the request originated from Core 1
+    bool from_core1 = false;
 };
 
 template <size_t N>

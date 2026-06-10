@@ -1,29 +1,23 @@
 #include "internal_memory.h"
 #include <cmath>
 #include <cstring>
+#include <pico/multicore.h>
 
 #include "debug_led.h"
 #include "pal.h"    // For vprintf
 
+__attribute__((section(".vmm_frames"))) uint8_t VMM::sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];
+
 void VMM::report_mutex_status() {
-    if (vmmMutex == NULL) {
-        // Mutex hasn't been created yet or memory was corrupted
-        ws2812_send_pixel(0, 255, 255); // Red for Error/Null
-        return;
-    }
-
-    // uxSemaphoreGetCount returns 1 if available, 0 if taken
-    if (uxSemaphoreGetCount(vmmMutex) == 1) {
-        // Available: Orange (R=255, G=165, B=0)
-        ws2812_send_pixel(255, 165, 0);
+    if (mutex_try_enter(&vmmMutex, NULL)) {
+        ws2812_send_pixel(255, 165, 0); // Orange
+        mutex_exit(&vmmMutex);
     } else {
-        // Taken: Red (R=255, G=0, B=0)
-        ws2812_send_pixel(255, 0, 0);
+        ws2812_send_pixel(255, 0, 0); // Red
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
 
+    sleep_ms(1000);
     ws2812_send_pixel(0, 0, 0);
-    vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
 void VMM::clear_page(uint32_t page_id)
@@ -81,28 +75,37 @@ void VMM::update_mpu_access(uint16_t frame_to_enable)
     // If the queue is full then there are no available MPU regions. We have to replace one of them.
     uint16_t region_frame[2];
 
-    if(queue_is_full(&mpu_region_frame_fifo)) {
-        queue_try_remove(&mpu_region_frame_fifo, region_frame);
+    if(uxQueueSpacesAvailable(mpu_region_frame_fifo) == 0) {
+        xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
         mpu_enabled.clear(region_frame[1]);
     } else {
         // Add a new region to the list
-        region_frame[0] = mpu_region_frame_fifo.element_count;  // Starts at 0. 8 regions (0 - 7).
+        region_frame[0] = uxQueueMessagesWaiting(mpu_region_frame_fifo);  // Starts at 0. 8 regions (0 - 7).
     }
 
     // Replace the old region number's frame with the new frame
     region_frame[1] = frame_to_enable;
-    queue_try_add(&mpu_region_frame_fifo, region_frame);
+    xQueueSend(mpu_region_frame_fifo, region_frame, 0);
     mpu_enabled.set(frame_to_enable);   // Update the bit array
 
-    uint32_t base_addr = get_physical_ptr(frame_to_enable);
-
     // Enable access to the new frame
-    active_mpu_regions[region_frame[0]].pvBaseAddress = (void*)base_addr;
-    active_mpu_regions[region_frame[0]].ulLengthInBytes = PAGE_SIZE;
-    active_mpu_regions[region_frame[0]].ulParameters = portMPU_REGION_READ_WRITE; // Omit EXECUTE_NEVER if execution is needed
+    uint32_t base_addr = (uint32_t)sram_frames[frame_to_enable];
+    uint32_t limit_addr = (base_addr + PAGE_SIZE) - 1;
 
-    // Update the MPU for the currently running task (or pass a specific TCB)
-    vTaskAllocateMPURegions(NULL, active_mpu_regions);
+    pending_mpu_cmd.region = region_frame[0];
+    pending_mpu_cmd.base_addr = base_addr;
+    pending_mpu_cmd.limit_addr = limit_addr;
+    pending_mpu_cmd.access = true;
+
+    mpu_ack_flag = false;
+    __DMB();
+    
+    multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
+
+    // Wait for ACK from core1
+    while (!mpu_ack_flag) {
+        tight_loop_contents();
+    }
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -153,7 +156,7 @@ void VMM::run()
         vTaskDelay(pdMS_TO_TICKS(100));
 
         // --- Aging Logic ---
-        xSemaphoreTake(vmmMutex, portMAX_DELAY);
+        mutex_enter_blocking(&vmmMutex);
         for (int i = 0; i < num_occupied_frames; i++) {
             // Age the frame ages
             if (frame_ages[i] < 255 - 1) {
@@ -168,13 +171,13 @@ void VMM::run()
             //     clear_page(p_id);
             // }
         }
-        xSemaphoreGive(vmmMutex);
+        mutex_exit(&vmmMutex);
     }
 }
 
 VMM::VMM() {
-    vmmMutex = xSemaphoreCreateBinary();
-    xSemaphoreGive(vmmMutex);
+    mutex_init(&vmmMutex);
+    sem_init(&core1_wait_sem, 0, 1);
 
     for(int i = 0; i < NUM_PAGES; i++) page_to_frame[i] = -1;
     for(int i = 0; i < MAX_PHYSICAL_FRAMES; i++) {
@@ -183,8 +186,9 @@ VMM::VMM() {
         frame_to_page[i] = 0xFFFFFFFF;
     }
 
-    queue_init(&mpu_region_frame_fifo, sizeof(int[2]), 3);  // 3 regions available
-    queue_init(&file_lru_fifo, sizeof(uint16_t), MAX_VIRTUAL_FILES);
+    mpu_region_frame_fifo = xQueueCreate(5, sizeof(uint16_t[2]));  // There are 8 regions, but 1 region is being used by the active program. The rest are being accessed.
+
+    file_lru_fifo = xQueueCreate(MAX_VIRTUAL_FILES, sizeof(uint16_t));
 }
 
 
@@ -194,17 +198,19 @@ void VMM::start() {
         xTaskCreate(
             vmmTaskWrapper, // The static bridge
             "VMM_Task",
-            8192,
+            512,    // 2kb
             this,           // Pass 'this' so the task knows which instance to use
             tskIDLE_PRIORITY + 1,
             &vmmTaskHandle
         );
-        vTaskCoreAffinitySet(vmmTaskHandle, SYSTEM_CORE_AFFINITY);
     }
+#if(configNUMBER_OF_CORES == 2)
+    vTaskCoreAffinitySet(vmmTaskHandle, SYSTEM_CORE_AFFINITY);
+#endif
 }
 
 void VMM::notify_completion(MemoryRequest *finished_req) {
-    xSemaphoreTake(vmmMutex, portMAX_DELAY);
+    mutex_enter_blocking(&vmmMutex);
 
     // Update state: Page is now officially resident
     if (finished_req->op == MemoryOp::READ) {
@@ -221,11 +227,13 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
         // There should be space if it reaches this point
     }
 
-    if(finished_req->task) {
+    if (finished_req->from_core1) {
+        sem_release(&core1_wait_sem);
+    } else if (finished_req->task) {
         xTaskNotifyGive(finished_req->task);
     }
 
-    xSemaphoreGive(vmmMutex);
+    mutex_exit(&vmmMutex);
 }
 
 
@@ -236,7 +244,7 @@ void VMM::access(uint32_t virtual_addr) {
 
     int16_t frame_idx;
 
-    xSemaphoreTake(vmmMutex, portMAX_DELAY);
+    mutex_enter_blocking(&vmmMutex);
     // Check if resident. If not, trigger swap-in logic
     if (!is_resident.get(page_id)) {
         // Select an available physical frame and tell the external memory
@@ -252,37 +260,44 @@ void VMM::access(uint32_t virtual_addr) {
                 .op = MemoryOp::WRITE,
                 .arg1 = page_to_write,
                 .buffer = sram_frames[frame],
-                .task = xTaskGetCurrentTaskHandle()
+                .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
             };
             write_req.req = &write_req;
 
-            xSemaphoreGive(vmmMutex);
+            mutex_exit(&vmmMutex);
             _external_memory->submit_request(write_req);
-            report_mutex_status();
             // Suspend the task. When it is woken up, the page will be in local memory
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            xSemaphoreTake(vmmMutex, portMAX_DELAY);
+            if (get_core_num() == 1) {
+                sem_acquire_blocking(&core1_wait_sem);
+            } else {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            }
+            mutex_enter_blocking(&vmmMutex);
         }
 
         // Reserve mapping early so other tasks knows where the page will live
         page_to_frame[page_id] = frame;
         frame_to_page[frame] = page_id;
-        xSemaphoreGive(vmmMutex);
+        mutex_exit(&vmmMutex);
 
         MemoryRequest read_req = {
             .op = MemoryOp::READ,
             .arg1 = page_id,    // The page id to read
             .arg2 = frame,      // The frame it will live in...Why is this here? TODO: Investigate whether arg2 is necessary
             .buffer = sram_frames[frame],
-            .task = xTaskGetCurrentTaskHandle()
+            .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
         };
         read_req.req = &read_req;
         _external_memory->submit_request(read_req);
 
 
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (get_core_num() == 1) {
+            sem_acquire_blocking(&core1_wait_sem);
+        } else {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
 
-        xSemaphoreTake(vmmMutex, portMAX_DELAY);
+        mutex_enter_blocking(&vmmMutex);
         frame_idx = read_req.arg2;
     } else {
         frame_idx = page_to_frame[page_id];
@@ -291,7 +306,7 @@ void VMM::access(uint32_t virtual_addr) {
 
     // For now, I am assuming that all accessed data is dirty
     is_dirty.set(page_id);
-    xSemaphoreGive(vmmMutex);
+    mutex_exit(&vmmMutex);
 
     // Enable the frame access
     update_mpu_access(frame_idx);
@@ -299,7 +314,7 @@ void VMM::access(uint32_t virtual_addr) {
 
 
 uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
-    uint32_t page_id = virtual_addr / PAGE_SIZE;
+    uint32_t page_id = (virtual_addr - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;
     uint32_t offset = virtual_addr % PAGE_SIZE;
 
     // Assumes page is already resident (call access() first to ensure it)
@@ -309,23 +324,26 @@ uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
     return (uintptr_t)(sram_frames[frame_idx] + offset);
 }
 
-inline uintptr_t VMM::get_vaddr_from_frame(uint32_t frame_id)
+uintptr_t VMM::get_vaddr_from_frame(uint32_t frame_id)
 {
     return frame_to_page[frame_id] * PAGE_SIZE + VIRTUAL_MEMORY_BASE;
 }
 
 void *VMM::alloc(size_t mem_size)
 {
-    TaskHandle_t cur_task = xTaskGetCurrentTaskHandle();
     // Send the request.
     MemoryRequest req = {
         MemoryOp::ALLOC,
         .arg2 = mem_size,   // arg2: requested memory size
-        .task = cur_task    // active task
+        .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL    // active task
     };
     req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (get_core_num() == 1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
 
     return (void*)(VIRTUAL_MEMORY_BASE + (req.arg1 * PAGE_SIZE));  // The data will always be page aligned.
 }
@@ -356,20 +374,26 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
     MemoryRequest req = {
         .op = MemoryOp::FOPEN,
         .arg1 = (uint32_t)file, // Filename of file to open
-        .task = xTaskGetCurrentTaskHandle()
+        .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
     };
     req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the file has been loaded
+
+    // Wait until the file has been loaded
+    if (get_core_num() == 1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
 
     uint32_t file_size = req.arg2;
     if (file_size == 0) return NULL;
 
     // File LRU
     uint16_t file_id;
-    if(queue_is_full(&file_lru_fifo)) {
+    if(uxQueueSpacesAvailable(file_lru_fifo) == 0) {
         // Remove the old file from the loaded page
-        queue_try_remove(&file_lru_fifo, &file_id);
+        xQueueReceive(file_lru_fifo, &file_id, 0);
 
         VirtualFile file_to_remove = file_data[file_id];
 
@@ -381,17 +405,23 @@ VirtualFile* VMM::file_open(const char *file, char* mode)
                 .arg2 = PAGE_SIZE,                  // Size of the buffer
                 .arg3 = file_to_remove.remote_id,   // File id on the server
                 .buffer = file_frames[file_id],     // Pointer to the buffer
-                .task = xTaskGetCurrentTaskHandle()
+                .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
             };
             req.req = &req;
             _external_memory->submit_request(write_req);
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the file has been written
+
+            // Wait until the file has been written
+            if (get_core_num() == 1) {
+                sem_acquire_blocking(&core1_wait_sem);
+            } else {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            }
         }
     } else {
-        file_id = file_lru_fifo.element_count;
+        file_id = uxQueueMessagesWaiting(file_lru_fifo);
     }
 
-    queue_try_add(&file_lru_fifo, &file_id);
+    xQueueSend(file_lru_fifo, &file_id, 0);
 
     // Initialize the local VirtualFile entry
     file_data[file_id].file_hash = file_hash;
@@ -417,7 +447,7 @@ size_t VMM::file_write(const void* __restrict__ buffer, size_t size, size_t coun
         size_t chunk_size = MIN(total_bytes - current_byte, VIRTUAL_FILE_PAGE_SIZE);
 
         // Copy the data from the user's buffer into the dedicated memory page
-        memcpy(file_frames[stream->descriptor], buffer + current_byte, chunk_size);
+        memcpy(file_frames[stream->descriptor], (uint8_t *)buffer + current_byte, chunk_size);
 
         MemoryRequest req = {
             .op = MemoryOp::FWRITE,
@@ -429,18 +459,24 @@ size_t VMM::file_write(const void* __restrict__ buffer, size_t size, size_t coun
         _external_memory->submit_request(req);
     }
 
-    memcpy(file_frames[stream->descriptor], buffer + current_byte, total_bytes - current_byte);
+    memcpy(file_frames[stream->descriptor], (uint8_t *)buffer + current_byte, total_bytes - current_byte);
     MemoryRequest req = {
         .op = MemoryOp::FWRITE,
         .arg1 = stream->offset,                     // File offset to start writing from
         .arg2 = total_bytes - current_byte,         // Total bytes to write
         .arg3 = stream->remote_id,
         .buffer = file_frames[stream->descriptor],  // Frame to write
-        .task = xTaskGetCurrentTaskHandle()
+        .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
     };
     req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Pause the task until all the writing is complete
+
+    // Pause the task until all the writing is complete
+    if (get_core_num() == 1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
 
     stream->offset += total_bytes;
 
@@ -466,14 +502,20 @@ size_t VMM::file_read(void *ptr, size_t size, size_t count, VirtualFile *stream)
             .arg2 = chunk_size,                         // Total bytes to write
             .arg3 = stream->remote_id,                  // The file to read
             .buffer = file_frames[stream->descriptor],  // Frame to write
-            .task = xTaskGetCurrentTaskHandle()
+            .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
         };
         req.req = &req;
         _external_memory->submit_request(req);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Pause the task until the next frame is loaded is complete
+
+        // Pause the task until the next frame is loaded is complete
+        if (get_core_num() == 1) {
+            sem_acquire_blocking(&core1_wait_sem);
+        } else {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
 
         // Copy the data from the file frame into the given buffer
-        memcpy(ptr + current_byte, file_frames[stream->descriptor], chunk_size);
+        memcpy((uint8_t *)ptr + current_byte, file_frames[stream->descriptor], chunk_size);
 
         stream->offset += chunk_size;
     }
@@ -504,25 +546,24 @@ int VMM::file_close(VirtualFile *stream) {
     MemoryRequest req = {
         .op = MemoryOp::FCLOSE,
         .arg3 = stream->remote_id,                  // File id on remote server
-        .task = xTaskGetCurrentTaskHandle()
+        .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
     };
     req.req = &req;
     _external_memory->submit_request(req);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (get_core_num() == 1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
 
     // Remove access to the old file frame
     uint16_t region_frame[2];
 
     mpu_enabled.clear(region_frame[1]);
 
-    queue_try_remove(&mpu_region_frame_fifo, region_frame);
+    xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
 
-    active_mpu_regions[region_frame[0]].pvBaseAddress = NULL;
-    active_mpu_regions[region_frame[0]].ulLengthInBytes = 0;
-    active_mpu_regions[region_frame[0]].ulParameters = 0;
-
-    // Apply the updated (cleared) region to the current task
-    vTaskAllocateMPURegions(NULL, active_mpu_regions);
+    set_addr_nexec(region_frame[0], (uint32_t)file_frames[stream->descriptor], (uint32_t)file_frames[stream->descriptor] + VIRTUAL_FILE_PAGE_SIZE, false);
 
     return 0;   // 100% Success Rate :)
 }
@@ -542,32 +583,35 @@ void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
             .arg2 = PAGE_SIZE,
             .arg3 = file_id.remote_id,
             .buffer = file_frame,
-            .task = xTaskGetCurrentTaskHandle()
+            .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL
         };
         req.req = &req;
         _external_memory->submit_request(req);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (get_core_num() == 1) {
+            sem_acquire_blocking(&core1_wait_sem);
+        } else {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
     }
 
     // If the queue is full then there are no available MPU regions. We have to replace one of them.
     uint16_t region_frame[2];
 
-    if(queue_is_full(&mpu_region_frame_fifo)) {
-        queue_try_remove(&mpu_region_frame_fifo, region_frame);
+     if(uxQueueSpacesAvailable(mpu_region_frame_fifo) == 0) {
+        xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
+        mpu_enabled.clear(region_frame[1]);
     } else {
         // Add a new region to the list
-        region_frame[0] = mpu_region_frame_fifo.element_count + 1;  // Starts at 1. This is because 0 is used for the program counter
+        region_frame[0] = uxQueueMessagesWaiting(mpu_region_frame_fifo);  // Starts at 0. 8 regions (0 - 7).
     }
 
     mpu_enabled.clear(region_frame[1]);
 
     // Replace the old region number's frame with the new frame
-    queue_try_add(&mpu_region_frame_fifo, region_frame);
+    // region_frame[1] = 0;    // Unused for now
+    xQueueSend(mpu_region_frame_fifo, region_frame, 0);
+    // mpu_enabled.set(0);   // Update the bit array
 
-    active_mpu_regions[region_frame[0]].pvBaseAddress = (void*)file_frame;
-    active_mpu_regions[region_frame[0]].ulLengthInBytes = VIRTUAL_FILE_PAGE_SIZE;
-    active_mpu_regions[region_frame[0]].ulParameters = portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER;
-
-    // Apply the updated regions to the current task
-    vTaskAllocateMPURegions(NULL, active_mpu_regions);
+    // Enable access to the file
+    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + VIRTUAL_FILE_PAGE_SIZE, true);
 }

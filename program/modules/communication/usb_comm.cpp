@@ -7,6 +7,7 @@
 #include "virtual_file.h"
 #include "FreeRTOS.h"
 #include "queue.h"
+#include <pico/multicore.h>
 
 #include "debug_led.h"
 
@@ -53,7 +54,6 @@ void usb_comm_setup() {
         USBD_PRIORITY,
         &usb_device_task_tcb
     );
-    vTaskCoreAffinitySet(usb_device_task_tcb, SYSTEM_CORE_AFFINITY);
 
     // Create queue and command task to avoid blocking the USB task on memory access
     usb_command_queue = xQueueCreate(10, sizeof(UsbCommand_t));
@@ -65,7 +65,11 @@ void usb_comm_setup() {
         tskIDLE_PRIORITY + 1,
         &usb_command_task_tcb
     );
+
+#if(configNUMBER_OF_CORES == 2)
+    vTaskCoreAffinitySet(usb_device_task_tcb, SYSTEM_CORE_AFFINITY);
     vTaskCoreAffinitySet(usb_command_task_tcb, SYSTEM_CORE_AFFINITY);
+#endif
 }
 
 // The Task Function
@@ -75,7 +79,6 @@ void usb_device_task(void *param) {
         // tud_task() is now blocking because of CFG_TUSB_OS
         tud_task();
         // ws2812_send_pixel(100,100,100);
-        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -160,12 +163,10 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
         }
 
+        // There is no built-in, pico library way to do this.
         case HALT_CLIENT:
-            vTaskSuspend(CLIENT::client_task_tcb);
-            break;
-
         case RESUME_CLIENT:
-            vTaskResume(CLIENT::client_task_tcb);
+            multicore_reset_core1();
             break;
 
         case FILE_OPEN: {

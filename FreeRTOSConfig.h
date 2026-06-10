@@ -78,7 +78,7 @@
 #ifndef configSUPPORT_DYNAMIC_ALLOCATION
 #define configSUPPORT_DYNAMIC_ALLOCATION        1
 #endif
-#define configTOTAL_HEAP_SIZE                   (94*1024)
+#define configTOTAL_HEAP_SIZE                   (96*1024)
 #define configAPPLICATION_ALLOCATED_HEAP        0
 
 /* Hook function related definitions. */
@@ -109,10 +109,10 @@
 */
 
 /* SMP port only */
-#define configNUMBER_OF_CORES                   2
+#define configNUMBER_OF_CORES                   1
 #define configTICK_CORE                         0
 #define configRUN_MULTIPLE_PRIORITIES           1
-#define configUSE_CORE_AFFINITY                 1   // (1 << 0) for core 0
+#define configUSE_CORE_AFFINITY                 0//1   // (1 << 0) for core 0
 #define configUSE_PASSIVE_IDLE_HOOK             0
 
 #include <assert.h>
@@ -139,16 +139,14 @@ to exclude the API function. */
 #define INCLUDE_xQueueGetMutexHolder            1
 
 // RP2350 Specific
-#define configENABLE_MPU                        1
-#define configUSE_MPU_WRAPPERS_V1               1
-
+#define configENABLE_MPU                        0
 #define configENABLE_TRUSTZONE                  0
-#define configRUN_FREERTOS_SECURE_ONLY          0
+#define configRUN_FREERTOS_SECURE_ONLY          1
 #define configENABLE_FPU                        1
 #define configMAX_SYSCALL_INTERRUPT_PRIORITY    16
+
 /* A header file that defines trace macro can be included here. */
 #define configUSE_POSIX_ERRNO                   1
 #define configKERNEL_PROVIDED_STATIC_MEMORY     0
 
 #endif /* FREERTOS_CONFIG_H */
-

@@ -3,6 +3,8 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include <pico/util/queue.h>
+#include <pico/mutex.h>
+#include <pico/sem.h>
 
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
@@ -17,7 +19,7 @@ class VMM {
     void report_mutex_status();
 
     // File
-    queue_t file_lru_fifo;    // Simple LRU to evict an unused file. Each entry is index(file_data)
+    QueueHandle_t file_lru_fifo;    // Simple LRU to evict an unused file. Each entry is index(file_data)
     VirtualFile file_data[MAX_VIRTUAL_FILES];
     uint8_t file_frames[MAX_VIRTUAL_FILES][PAGE_SIZE];      // The physical frame location of a file
 
@@ -33,7 +35,9 @@ class VMM {
     PageBitArray is_resident;
     PageBitArray is_dirty;
 
-    SemaphoreHandle_t vmmMutex;
+    mutex_t vmmMutex;
+    semaphore_t core1_wait_sem;
+
     TaskHandle_t vmmTaskHandle = NULL;
 
     ExternalMemory *_external_memory;
@@ -42,10 +46,10 @@ class VMM {
     uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
     /* === MPU CODE === */
-    MemoryRegion_t active_mpu_regions[portNUM_CONFIGURABLE_REGIONS];
-
-    /* Only MPU Regions 0-7 are used by the access code..*/
-    queue_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
+    /* Only MPU Regions 1-7 are used by the access code.
+     * Region 0 is used for the FILE API table
+    .*/
+    QueueHandle_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
     FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.
 
     /// @brief Updates the rp2350 MPU. It cycles through frame regions in a lru-style policy, where only the 7 recently accessed frames are
@@ -69,7 +73,8 @@ class VMM {
     }
 
 public:
-    __attribute__((aligned(4))) uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side ). 4 byte aligned for arm instructions
+    // Aligned in the linker script
+    static uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side ). 4 byte aligned for arm instructions
 
     VMM();
     void add_external_memory(ExternalMemory *external_memory) {

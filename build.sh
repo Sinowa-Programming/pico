@@ -17,4 +17,7 @@ find . -type f \( \
 # ./compile.sh
 
 # Re-run cmake
-cmake .
+cmake -DCMAKE_BUILD_TYPE=Debug .
+
+echo 'To debug, run: openocd -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c "adapter speed 5000"'
+echo 'To decompile, run: arm-none-eabi-objdump -D -bbinary -marm client_payload.bin -Mforce-thumb > client_payload.txt'

@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-FirmwareJMPTable api_table __attribute__((section(".api_table_section"))) = {
+const FirmwareJMPTable api_table = {
     .sleep  = _vsleep,
     .printf = _vprintf,
     .memset = _vmemset,

@@ -18,23 +18,31 @@
 
 class VMM;
 
+extern volatile bool request_copied;
 class ExternalMemory {
     TaskHandle_t run_task;
+    TaskHandle_t core0_fifo_task;
 
     QueueHandle_t mem_requests;
 
     void *rx_buffer;    // Stores a pointer to any data the communication handler sends to the External Memory
-    MemoryRequest *active_req;
+    MemoryRequest active_req;
 
     VMM *internal_memory;
 
+    void core0_fifo_isr();
     void setup_dma();
 
     void run();
 
-    static void task_entry(void* params) {
+    static void run_task_entry(void* params) {
         ExternalMemory *external_memory = static_cast<ExternalMemory*>(params);
         external_memory->run();
+    }
+
+    static void core0_fifo_task_entry(void* params) {
+        ExternalMemory *external_memory = static_cast<ExternalMemory*>(params);
+        external_memory->core0_fifo_isr();
     }
 
 public:
@@ -52,6 +60,9 @@ public:
 
     // A page has been transfered
     void notify_transfer_completion(void *buffer = nullptr);
+
+    QueueHandle_t get_queue() { return mem_requests; }
+
 };
 
 

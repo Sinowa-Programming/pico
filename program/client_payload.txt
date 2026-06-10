@@ -1,0 +1,46 @@
+
+client_payload.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00000000 <.data>:
+   0:	6548      	str	r0, [r1, #84]	; 0x54
+   2:	6c6c      	ldr	r4, [r5, #68]	; 0x44
+   4:	206f      	movs	r0, #111	; 0x6f
+   6:	7266      	strb	r6, [r4, #9]
+   8:	6d6f      	ldr	r7, [r5, #84]	; 0x54
+   a:	7420      	strb	r0, [r4, #16]
+   c:	7365      	strb	r5, [r4, #13]
+   e:	5f74      	ldrsh	r4, [r6, r5]
+  10:	7270      	strb	r0, [r6, #9]
+  12:	676f      	str	r7, [r5, #116]	; 0x74
+  14:	6172      	str	r2, [r6, #20]
+  16:	5f6d      	ldrsh	r5, [r5, r5]
+  18:	616d      	str	r5, [r5, #20]
+  1a:	6e69      	ldr	r1, [r5, #100]	; 0x64
+  1c:	0021      	movs	r1, r4
+  1e:	0000      	movs	r0, r0
+
+program start:
+  20:	b508      	push	{r3, lr}
+  22:	4c04      	ldr	r4, [pc, #16]	; (0x34) Align(4)(22 + 4)-> 0x24 + 0x10 = 0x34. Load 0x2007f000 into r4
+  24:	6863      	ldr	r3, [r4, #4]   ; load address at 0x2007f004 into r3
+  26:	4804      	ldr	r0, [pc, #16]	; (0x38) Align(4)(26 + 4) -> 0x28 + 0x10 = 0x38. Load 20082000 into r0
+  28:	4798      	blx	r3             ; branch to r3
+  2a:	6823      	ldr	r3, [r4, #0]   ; load address 0x2007f000 into r3
+  2c:	f44f 707a 	mov.w	r0, #1000	  ; 0x3e8 r0 = 1000
+  30:	4798      	blx	r3             ; branch to r3
+  32:	e7f6      	b.n	0x22           ; go to 22( loop )
+
+data?:
+  34:	f000 2007 	and.w	r0, r0, #117442304	; 0x7000700
+  38:	2000      	movs	r0, #0
+  3a:	2008      	movs	r0, #8
+  3c:	03e8      	lsls	r0, r5, #15
+  3e:	0000      	movs	r0, r0
+  40:	1000      	asrs	r0, r0, #32
+  42:	0000      	movs	r0, r0
+  44:	2021      	movs	r0, #33	; 0x21
+  46:	2008      	movs	r0, #8
+

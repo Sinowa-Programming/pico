@@ -4,47 +4,26 @@
 #include "mpu_config.h"
 #include "hardware/sync.h"
 #include "RP2350.h"
+#include "pico/multicore.h"
 
 #include "debug_led.h"
 
 // Limit visibility to only this file
 namespace {
     CLIENT::main_func_t client_main = nullptr;
-
-    StackType_t client_task_stack[CLIENT::CLIENT_TASK_STACK_SIZE] __attribute__((aligned(32)));
-
-    // Define the initial MPU regions for the task (VMM will populate them)
-    const MemoryRegion_t initial_regions[portNUM_CONFIGURABLE_REGIONS] = {
-        { 0, 0, 0 },
-        { 0, 0, 0 },
-        { 0, 0, 0 }
-    };
 }
 
-TaskHandle_t CLIENT::client_task_tcb = NULL;
+volatile bool CLIENT::task_enabled = false;
 
+
+void CLIENT::setup_client_task(){
+    multicore_reset_core1();
+    multicore_launch_core1(client_task);
+}
 
 void CLIENT::start_client_task() {
-    if(client_task_tcb != NULL) {
-        vTaskDelete(client_task_tcb);
-    }
-
-    TaskParameters_t client_task_parameters = {
-        .pvTaskCode = client_task,
-        .pcName = "client_task",
-        .usStackDepth = CLIENT_TASK_STACK_SIZE,
-        .pvParameters = NULL,
-        .uxPriority = CLIENT_PRIORITY | portPRIVILEGE_BIT, // Remove privilege bit for user mode
-        .puxStackBuffer = client_task_stack,
-        .xRegions = {
-            initial_regions[0],
-            initial_regions[1],
-            initial_regions[2]
-        }
-    };
-
-    xTaskCreateRestricted(&client_task_parameters, &client_task_tcb);
-    vTaskCoreAffinitySet(client_task_tcb, CLIENT_CORE_AFFINITY);
+    task_enabled = true;
+    __DMB();
 }
 
 void CLIENT::load_frame(uintptr_t physical_addr) {
@@ -56,23 +35,26 @@ void CLIENT::load_frame(uintptr_t physical_addr) {
     client_main = (main_func_t)(physical_addr | 1);
 }
 
-void CLIENT::client_task(void* pvParameters) {
+void CLIENT::client_task() {
     while (get_core_num() != 1) {
-        vTaskDelay(1);
+        __asm volatile("nop");
     }
+    
+    core1_setup();
+    
+    task_enabled = false;
+    __DMB();
+    
+    while(!task_enabled);
 
-    // It is expected that a program has been loaded using load_frame
-    if (client_main != nullptr) {
+    if(client_main != nullptr) {
         ws2812_send_pixel(100,100,100);
         client_main();  // execute the code
     }
 
-
     while(1) {
-        _vprintf("Hello from test_program_main!");
+        _vprintf("The client program has closed or is null.");
 
         _vsleep(1000);
     }
-
-    vTaskDelete(NULL);
 }

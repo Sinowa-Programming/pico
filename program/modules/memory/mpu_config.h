@@ -14,7 +14,23 @@
 
 extern class VMM vmm;
 
-void configure_rp2350_mpu();
+extern uint32_t __etext;
+extern uint32_t __vmm_frames_start;
+
+void core1_setup();
+void configure_rp2350_core1_mpu();
+void configure_core1_static_regions();
+
+// Sent to core 1 to config it's MPU
+struct MpuCommand {
+    uint32_t region;
+    uint32_t base_addr;
+    uint32_t limit_addr;
+    bool access;
+};
+
+extern volatile MpuCommand pending_mpu_cmd;
+extern volatile bool mpu_ack_flag;
 
 void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access, bool execute);
 
@@ -51,7 +67,7 @@ typedef struct {
 } StackFrame;
 
 // Page fault interrupt handler
-void MemManage_Handler(void);
-void MemManage_Handler_C(StackFrame *frame);
+// void MemManage_Handler(void);
+// void MemManage_Handler_C(StackFrame *frame);
 
 #endif  // MPU_CONFIG_H

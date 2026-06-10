@@ -114,9 +114,19 @@ int _vprintf(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    // Format the string into the buffer
-    // vsnprintf returns the number of characters written
-    int result = vsnprintf(formatted_text, sizeof(formatted_text), format, args);
+    int result;
+    if(get_core_num() == 1) {
+        const char* physical_format_addr = (const char *)(vmm.get_physical_ptr((uint32_t)format));
+
+        // Format the string into the buffer
+        // vsnprintf returns the number of characters written
+        result = vsnprintf(formatted_text, sizeof(formatted_text), physical_format_addr, args);
+    } else {
+        result = vsnprintf(formatted_text, sizeof(formatted_text), format, args);
+    }
+    
+
+    
 
     if (result > 0) {
         MemoryRequest req = {
@@ -131,5 +141,5 @@ int _vprintf(const char *format, ...)
 
 void _vsleep(uint32_t time)
 {
-    vTaskDelay(pdMS_TO_TICKS(time));
+    busy_wait_us(time * 100);
 }

@@ -31,7 +31,7 @@ typedef struct {
 } FirmwareJMPTable;
 
 #define FW_API ((FirmwareJMPTable*)API_TABLE_ADDRESS)
-extern FirmwareJMPTable api_table;
+extern const FirmwareJMPTable api_table;    // This is in standard ram
 
 #ifdef __cplusplus
 }

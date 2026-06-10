@@ -1,11 +1,13 @@
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
+#include <pico/multicore.h>
 #include "tusb.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
 #include "pal.h"
+#include "pal_stdlib.h"
 #include "usb_comm.h"
 #include "memory.hpp"
 #include "client_map.h"
@@ -15,6 +17,8 @@
 ExternalMemory external_memory;
 VMM vmm;
 
+// The API table the client will use
+extern const FirmwareJMPTable api_table;
 
 int main()
 {
@@ -39,16 +43,20 @@ int main()
     // Start the memory managers
     external_memory.start();
     vmm.start();
-    
+
     sleep_ms(500);
     ws2812_send_pixel(0, 0, 255);
     sleep_ms(500);
 
-    // Start the client process
+    // Start the core 1 task
     ws2812_send_pixel(0, 0, 0);
-    // CLIENT::start_client_task();
+    CLIENT::setup_client_task();
     sleep_ms(500);
     ws2812_send_pixel(0, 255, 0);
+
+    // Setup the API table pointer
+    FirmwareJMPTable* client_api = FW_API;
+    memcpy(client_api, &api_table, sizeof(FirmwareJMPTable));
 
     // Start the processor
     vTaskStartScheduler();
@@ -73,19 +81,19 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
 }
 
 /* Required for the SMP (Multi-core) port of FreeRTOS for the secondary core */
-void vApplicationGetPassiveIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
-                                           StackType_t **ppxIdleTaskStackBuffer,
-                                           uint32_t *pulIdleTaskStackSize,
-                                           BaseType_t xPassiveCoreNum )
-{
-    /* RP2350 has 2 cores, so we only need 1 passive idle task */
-    static StaticTask_t xIdleTaskTCB;
-    static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
+// void vApplicationGetPassiveIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
+//                                            StackType_t **ppxIdleTaskStackBuffer,
+//                                            uint32_t *pulIdleTaskStackSize,
+//                                            BaseType_t xPassiveCoreNum )
+// {
+//     /* RP2350 has 2 cores, so we only need 1 passive idle task */
+//     static StaticTask_t xIdleTaskTCB;
+//     static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
 
-    *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
-    *ppxIdleTaskStackBuffer = uxIdleTaskStack;
-    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
-}
+//     *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
+//     *ppxIdleTaskStackBuffer = uxIdleTaskStack;
+//     *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
+// }
 
 /* configSUPPORT_STATIC_ALLOCATION and configUSE_TIMERS are both set to 1, so the
 application must provide an implementation of vApplicationGetTimerTaskMemory()
