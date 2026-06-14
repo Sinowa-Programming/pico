@@ -37,75 +37,111 @@ void VMM::clear_page(uint32_t page_id)
 
 uint8_t VMM::get_available_frame(bool* is_page_dirty, uint32_t* page_to_write) {
     *is_page_dirty = false;
-    uint32_t frame;
+    uint32_t frame = -1;
 
     if (num_occupied_frames < MAX_PHYSICAL_FRAMES) {
         frame = num_occupied_frames;
         num_occupied_frames++;
-    } else {
-        frame = is_dirty.find_first_zero();
+        return frame;
+    } 
+    for (int i=0; i < MAX_PHYSICAL_FRAMES; ++i) {
+        uint8_t frame_id = lru_list[i];
+        uint32_t page_id = frame_to_page[frame_id];
 
-        if(frame == -1) {
-            // RAM is full and all frames are dirty. Evict the LRU frame.
-            frame = MAX_PHYSICAL_FRAMES - 1;
-            *page_to_write = frame_to_page[frame];
-            *is_page_dirty = true; // Signal the caller to block
-
-            // Instantly unmap metadata so no other task can grab it
-            is_resident.clear(*page_to_write);
-            is_dirty.clear(*page_to_write);
-            page_to_frame[*page_to_write] = -1;
-            frame_to_page[frame] = 0xFFFFFFFF;
-
-        } else {
-            // It's a clean frame, just wipe the metadata safely
-            clear_page(frame_to_page[frame]);
+        // Evict if the page is valid and NOT dirty.
+        if (page_id != 0xFFFFFFFF && !is_dirty.get(page_id)) {
+            frame = frame_id;
+            break;
         }
     }
+
+    if(frame == -1) {
+        // RAM is full and all frames are dirty. Evict the LRU frame.
+        frame = lru_list[MAX_PHYSICAL_FRAMES - 1];
+        *page_to_write = frame_to_page[frame];
+        *is_page_dirty = true; // Signal the caller to write the data
+
+        is_resident.clear(*page_to_write);
+        is_dirty.clear(*page_to_write);
+        page_to_frame[*page_to_write] = -1;
+        frame_to_page[frame] = 0xFFFFFFFF;
+
+    } else {
+        // It's a clean frame, just wipe the metadata safely
+        clear_page(frame_to_page[frame]);
+    }
+
     return frame;
 }
 
-void VMM::update_mpu_access(uint16_t frame_to_enable)
+void VMM::update_mpu_access(uint16_t frame_to_enable, MpuRegionSlot slot)
 {
-    // If the MPU has already enabled access, do nothing.
-    if (mpu_enabled.get(frame_to_enable)) {
+    // Select the appropriate MPU region
+    uint16_t mpu_region = slot;
+
+    if(mpu_enabled[slot] == frame_to_enable) {
         return;
     }
-
-    // If the queue is full then there are no available MPU regions. We have to replace one of them.
-    uint16_t region_frame[2];
-
-    if(uxQueueSpacesAvailable(mpu_region_frame_fifo) == 0) {
-        xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
-        mpu_enabled.clear(region_frame[1]);
-    } else {
-        // Add a new region to the list
-        region_frame[0] = uxQueueMessagesWaiting(mpu_region_frame_fifo);  // Starts at 0. 8 regions (0 - 7).
-    }
-
-    // Replace the old region number's frame with the new frame
-    region_frame[1] = frame_to_enable;
-    xQueueSend(mpu_region_frame_fifo, region_frame, 0);
-    mpu_enabled.set(frame_to_enable);   // Update the bit array
 
     // Enable access to the new frame
     uint32_t base_addr = (uint32_t)sram_frames[frame_to_enable];
     uint32_t limit_addr = (base_addr + PAGE_SIZE) - 1;
 
-    pending_mpu_cmd.region = region_frame[0];
+    pending_mpu_cmd.region = mpu_region;
     pending_mpu_cmd.base_addr = base_addr;
     pending_mpu_cmd.limit_addr = limit_addr;
     pending_mpu_cmd.access = true;
+    pending_mpu_cmd.execute = (slot == MpuRegionSlot::SLOT_EXEC);
+    pending_mpu_cmd.clear = false;
 
     mpu_ack_flag = false;
     __DMB();
     
-    multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
+    if (get_core_num() == 0) {
+        multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
 
-    // Wait for ACK from core1
-    while (!mpu_ack_flag) {
-        tight_loop_contents();
+        // Wait for ACK from core1
+        while (!mpu_ack_flag) {
+            tight_loop_contents();
+        }
+    } else {
+        set_addr(pending_mpu_cmd.region, pending_mpu_cmd.base_addr, pending_mpu_cmd.limit_addr, pending_mpu_cmd.access, pending_mpu_cmd.execute);
+        __DSB();
+        __ISB();
     }
+
+    // Track which frame is now enabled for this region
+    mpu_enabled[slot] = frame_to_enable;
+}
+
+void VMM::clear_region(MpuRegionSlot slot)
+{
+    uint16_t mpu_region = slot;
+
+    // Disable access to the MPU region
+    pending_mpu_cmd.region = mpu_region;
+    pending_mpu_cmd.base_addr = 0;
+    pending_mpu_cmd.limit_addr = 0;
+    pending_mpu_cmd.access = false;
+    pending_mpu_cmd.execute = false;
+    pending_mpu_cmd.clear = true;
+
+    mpu_ack_flag = false;
+    __DMB();
+    
+    if (get_core_num() == 0) {
+        multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
+
+        // Wait for ACK from core1
+        while (!mpu_ack_flag) {
+            tight_loop_contents();
+        }
+    } else {
+        mpu_clear_region(mpu_region);
+    }
+
+    // Mark the region as having no frame enabled
+    mpu_enabled[slot] = 0xFFFF;
 }
 
 // Move the empty frame to the back and decrement the frame size, effectively deleting the frame from the LRU
@@ -186,7 +222,8 @@ VMM::VMM() {
         frame_to_page[i] = 0xFFFFFFFF;
     }
 
-    mpu_region_frame_fifo = xQueueCreate(5, sizeof(uint16_t[2]));  // There are 8 regions, but 1 region is being used by the active program. The rest are being accessed.
+    mpu_enabled[0] = 0xFFFF;  // MAIN_MPU_REGION - no frame enabled
+    mpu_enabled[1] = 0xFFFF;  // AUXILIARY_MPU_REGION - no frame enabled
 
     file_lru_fifo = xQueueCreate(MAX_VIRTUAL_FILES, sizeof(uint16_t));
 }
@@ -221,13 +258,19 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
         // Move to MRU (front of list)
         update_lru_access(finished_req->arg2);
     }
-    else if (finished_req->op == MemoryOp::WRITE) {  // A returned write request means that the page has been marked clear
-        // clear_page(finished_req->arg1, false);
-    } else if (finished_req->op == MemoryOp::ALLOC) {
-        // There should be space if it reaches this point
+    else if (finished_req->op == MemoryOp::FREE) {
+        // Mark the page and it's attached frame clear for future use if it is present
+        uint32_t page_id = (finished_req->arg1 - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;
+        if(is_resident.get(page_id)) {
+            uint32_t frame = page_to_frame[page_id];
+            is_resident.clear(page_id);
+            is_dirty.clear(page_id);
+            page_to_frame[page_id] = -1;
+            frame_to_page[frame] = 0xFFFFFFFF;
+        }
     }
 
-    if (finished_req->from_core1) {
+    if (finished_req->from_core1 && finished_req->op != MemoryOp::LOG && finished_req->op != MemoryOp::FREE) {
         sem_release(&core1_wait_sem);
     } else if (finished_req->task) {
         xTaskNotifyGive(finished_req->task);
@@ -237,7 +280,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 }
 
 
-void VMM::access(uint32_t virtual_addr) {
+void VMM::access(uint32_t virtual_addr, MpuRegionSlot slot) {
     // Normalize the address by subtracting the base
     uint32_t relative_addr = virtual_addr - VIRTUAL_MEMORY_BASE;
     uint32_t page_id = relative_addr / PAGE_SIZE;
@@ -309,7 +352,7 @@ void VMM::access(uint32_t virtual_addr) {
     mutex_exit(&vmmMutex);
 
     // Enable the frame access
-    update_mpu_access(frame_idx);
+    update_mpu_access(frame_idx, slot);
 }
 
 
@@ -324,32 +367,57 @@ uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
     return (uintptr_t)(sram_frames[frame_idx] + offset);
 }
 
-uintptr_t VMM::get_vaddr_from_frame(uint32_t frame_id)
+uintptr_t VMM::get_vaddr_from_frame(int16_t frame_id)
 {
     return frame_to_page[frame_id] * PAGE_SIZE + VIRTUAL_MEMORY_BASE;
 }
 
+uint32_t VMM::get_frame_id_from_paddr(uint32_t paddr)
+{
+    // Calculate the offset from the start of the frame storage
+    uintptr_t offset = paddr - (uintptr_t)&__vmm_frames_start;
+    
+    // Divide by PAGE_SIZE to get the frame ID
+    return offset / PAGE_SIZE;
+}
+
+uintptr_t VMM::get_vaddr_from_paddr(uint32_t paddr)
+{
+    // Calculate the offset from the start of the frame storage
+    uintptr_t offset = paddr - (uintptr_t)&__vmm_frames_start;
+    
+    // Get the frame ID and offset within the frame
+    uint32_t frame_id = offset / PAGE_SIZE;
+    uint32_t offset_in_frame = offset % PAGE_SIZE;
+    
+    // Get the virtual address of the frame and add the offset
+    return get_vaddr_from_frame(frame_id) + offset_in_frame;
+}
+
 void *VMM::alloc(size_t mem_size)
 {
+    int is_core1 = (get_core_num() == 1);
     // Send the request.
+    
     MemoryRequest req = {
-        MemoryOp::ALLOC,
+        .op = MemoryOp::ALLOC,
         .arg2 = mem_size,   // arg2: requested memory size
-        .task = get_core_num() == 0 ? xTaskGetCurrentTaskHandle() : NULL    // active task
+        .task = is_core1 ? NULL : xTaskGetCurrentTaskHandle()    // active task
     };
     req.req = &req;
     _external_memory->submit_request(req);
-    if (get_core_num() == 1) {
+    if (is_core1) {
         sem_acquire_blocking(&core1_wait_sem);
     } else {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
 
-    return (void*)(VIRTUAL_MEMORY_BASE + (req.arg1 * PAGE_SIZE));  // The data will always be page aligned.
+    return (void*)(req.arg1);
 }
 
 void VMM::free(uint32_t virtual_addr)
 {
+    address_map.remove_by_original_address(virtual_addr);
     MemoryRequest req = {
         MemoryOp::FREE,
         .arg1 = virtual_addr,   // arg1: requested memory size
@@ -359,7 +427,25 @@ void VMM::free(uint32_t virtual_addr)
     _external_memory->submit_request(req);
 }
 
-VirtualFile* VMM::file_open(const char *file, char* mode)
+void VMM::register_address_alias(uint32_t original_address, uint32_t adjusted_address)
+{
+    address_map.add_entry(original_address, adjusted_address);
+}
+
+uint32_t VMM::resolve_alias_to_virtual_base(uint32_t adjusted_address) {
+    uint32_t idx = address_map.get_index_from_adjusted_address(adjusted_address);
+    if(idx != 0xFFFFFFFF) {
+        return address_map.get_original_address_from_index(idx);
+    }
+    return adjusted_address; // If no alias exists, return the address as-is
+}
+
+void VMM::remove_alias_to_virtual_base(uint32_t adjusted_address)
+{
+    address_map.remove_by_adjusted_address(adjusted_address);
+}
+
+VirtualFile *VMM::file_open(const char *file, char *mode)
 {
     uint32_t file_hash = hash(file);
 
@@ -555,16 +641,8 @@ int VMM::file_close(VirtualFile *stream) {
     } else {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
-
-    // Remove access to the old file frame
-    uint16_t region_frame[2];
-
-    mpu_enabled.clear(region_frame[1]);
-
-    xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
-
-    set_addr_nexec(region_frame[0], (uint32_t)file_frames[stream->descriptor], (uint32_t)file_frames[stream->descriptor] + VIRTUAL_FILE_PAGE_SIZE, false);
-
+    // TODO: FINISH THIS
+    
     return 0;   // 100% Success Rate :)
 }
 
@@ -593,25 +671,5 @@ void VMM::file_access(VirtualFile &file_id, uint32_t file_offset)
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         }
     }
-
-    // If the queue is full then there are no available MPU regions. We have to replace one of them.
-    uint16_t region_frame[2];
-
-     if(uxQueueSpacesAvailable(mpu_region_frame_fifo) == 0) {
-        xQueueReceive(mpu_region_frame_fifo, region_frame, 0);
-        mpu_enabled.clear(region_frame[1]);
-    } else {
-        // Add a new region to the list
-        region_frame[0] = uxQueueMessagesWaiting(mpu_region_frame_fifo);  // Starts at 0. 8 regions (0 - 7).
-    }
-
-    mpu_enabled.clear(region_frame[1]);
-
-    // Replace the old region number's frame with the new frame
-    // region_frame[1] = 0;    // Unused for now
-    xQueueSend(mpu_region_frame_fifo, region_frame, 0);
-    // mpu_enabled.set(0);   // Update the bit array
-
-    // Enable access to the file
-    set_addr_nexec(region_frame[0], (uint32_t)file_frame, (uint32_t)file_frame + VIRTUAL_FILE_PAGE_SIZE, true);
+    // TODO: FINISH THIS
 }

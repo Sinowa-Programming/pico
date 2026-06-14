@@ -27,26 +27,24 @@ struct MpuCommand {
     uint32_t base_addr;
     uint32_t limit_addr;
     bool access;
+    bool execute;
+    bool clear;
 };
 
 extern volatile MpuCommand pending_mpu_cmd;
 extern volatile bool mpu_ack_flag;
 
+inline void mpu_clear_region(uint16_t region_number)
+{
+    ARM_MPU_ClrRegion(region_number);
+};
+
 void set_addr(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access, bool execute);
 
-inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
-{
-    set_addr(region_number, base_address, limit_address, access, true);
-}
-
-inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access)
-{
-    set_addr(region_number, base_address, limit_address, access, false);
-}
-
-// The stack frame that a fault handler is given
+// The hardware and software registers have been split because the FPU on the Arm M33
+// dynamically stacks additional registers if the FPU was being used by the thread
+// during the fault.
 typedef struct {
-    // Software saved registers
     uint32_t r4;
     uint32_t r5;
     uint32_t r6;
@@ -55,7 +53,9 @@ typedef struct {
     uint32_t r9;
     uint32_t r10;
     uint32_t r11;
-    // Hardware saved registers (Pushed by the CPU)
+} CpuSoftwareFrame;
+
+typedef struct {
     uint32_t r0;
     uint32_t r1;
     uint32_t r2;
@@ -64,10 +64,6 @@ typedef struct {
     uint32_t lr;
     uint32_t pc;
     uint32_t xpsr;
-} StackFrame;
-
-// Page fault interrupt handler
-// void MemManage_Handler(void);
-// void MemManage_Handler_C(StackFrame *frame);
+} CpuHardwareFrame;
 
 #endif  // MPU_CONFIG_H

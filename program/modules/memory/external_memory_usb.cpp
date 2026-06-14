@@ -19,12 +19,19 @@ ExternalMemory* ext_mem_instance = nullptr;
 volatile bool request_copied = false;
 
 void ExternalMemory::core0_fifo_isr() {
+    BaseType_t ret;
     while(true) {
         if (multicore_fifo_rvalid()) {
             MemoryRequest* req = (MemoryRequest*)multicore_fifo_pop_blocking();
             if(req != nullptr) {
-                xQueueSend(get_queue(), req, portMAX_DELAY);
-            
+                do {
+                    ret = xQueueSend(mem_requests, req, 0);
+
+                    if(ret == errQUEUE_FULL) {
+                        vTaskDelay(pdMS_TO_TICKS(1));   // Give time for the fifo to drain
+                    }
+                } while(ret == errQUEUE_FULL);
+
                 // ACK back to Core 1 that the memory has been safely copied
                 request_copied = true;
                 __DMB();
@@ -42,8 +49,13 @@ void ExternalMemory::setup_dma() {
 
 void ExternalMemory::run() {
     while (true) {
+        MemoryRequest active_req;  // Local variable - each request gets its own storage
+        
         // Wait for a request from the VMM
         if (xQueueReceive(mem_requests, &active_req, portMAX_DELAY) == pdTRUE) {
+            // Store the buffer pointer for external access
+            current_request_buffer = active_req.buffer;
+            
             switch(active_req.op) {
                 case MemoryOp::READ: {
                     // The page is not in memory. Load it.
@@ -194,7 +206,7 @@ void ExternalMemory::run() {
             if(active_req.task != NULL || active_req.from_core1) {
                 // xTaskNotifyGive(active_req.task);
                 // Notify internal memory that the page has been provided via rx_buffer
-                internal_memory->notify_completion(active_req.req);
+                internal_memory->notify_completion(&active_req);
             }
         }
     }
@@ -204,6 +216,7 @@ ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
     mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest));
     setup_dma();
     this->internal_memory = internal_memory;
+    current_request_buffer = nullptr;
     ext_mem_instance = this;
 }
 
@@ -239,14 +252,20 @@ void ExternalMemory::submit_request(MemoryRequest &req) {
 }
 
 uint8_t* ExternalMemory::get_memory_request_sram_buffer() {
-    return active_req.buffer;
+    return current_request_buffer;
 }
 
 void ExternalMemory::notify_transfer_completion(void *buffer) {
     rx_buffer = buffer;
 
     // Notify the ExternalMemory Task to process the full page
-    xTaskNotifyGive(run_task);
+    // xTaskNotifyGive(run_task);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(run_task, &xHigherPriorityTaskWoken);
+    
+    // Yield if waking the run_task caused it to have a higher priority 
+    // than the currently interrupted task
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 // === Helpers for transferring over full speed usb ===

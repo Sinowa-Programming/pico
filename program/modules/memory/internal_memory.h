@@ -10,12 +10,24 @@
 #include "external_memory.h"    // For sending memory requests
 #include "virtual_file.h"
 #include "mpu_config.h"
+#include "static_address_map.h"
 
 extern inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
+extern uint32_t __vmm_frames_start;
+
 class ExternalMemory;
 
 class VMM {
+public:
+    enum MpuRegionSlot {
+        SLOT_EXEC     = 0,
+        SLOT_DATA     = 1,
+        SLOT_AUX_DATA = 2
+    };
+private:
+    static const uint16_t ADJUSTED_ADDRESS_LIMIT = 20;
+
     void report_mutex_status();
 
     // File
@@ -45,17 +57,20 @@ class VMM {
     void clear_page(uint32_t page_id);
     uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
-    /* === MPU CODE === */
-    /* Only MPU Regions 1-7 are used by the access code.
-     * Region 0 is used for the FILE API table
-    .*/
-    QueueHandle_t mpu_region_frame_fifo;    // This is an awful strategy, but I don't want the awful overhead of counting accesses to each page. Each entry is a [region number, frame_idx]
-    FrameBitArray mpu_enabled;   // Array for if the mpu has already enabled a specific page. Operates in the Frame space.
+    StaticAddressMap<20> address_map;
 
-    /// @brief Updates the rp2350 MPU. It cycles through frame regions in a lru-style policy, where only the 7 recently accessed frames are
-    ///        allowed access. Other frames require a MemManage Fault (MPU Fault) to transfer mpu access.
+    /* === MPU CODE === */
+    /* MPU Regions used:
+     * Region 0: Region used for instruction execution
+     * Region 1: Main region for normal memory access
+     * Region 2:  Auxiliary region for dual-access scenarios (e.g., memcpy)
+    */
+    uint16_t mpu_enabled[3];    // Track which frame is currently enabled for each region (0xFFFF if none)
+
+    /// @brief Updates the rp2350 MPU to enable access to the specified frame.
     /// @param frame_to_enable The frame that access (including execution) will be granted to.
-    void update_mpu_access(uint16_t frame_to_enable);
+    /// @param use_auxiliary_region If true, uses AUXILIARY_MPU_REGION; otherwise uses MAIN_MPU_REGION
+    void update_mpu_access(uint16_t frame_to_enable, MpuRegionSlot slot);
     /* =========== */
 
     // ==== LRU code ====
@@ -74,7 +89,7 @@ class VMM {
 
 public:
     // Aligned in the linker script
-    static uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side ). 4 byte aligned for arm instructions
+    static uint8_t sram_frames[MAX_PHYSICAL_FRAMES][PAGE_SIZE];    // The physical storage of the data( host side ). 32 bit aligned by the linker for the MPU
 
     VMM();
     void add_external_memory(ExternalMemory *external_memory) {
@@ -86,10 +101,16 @@ public:
     void notify_completion(MemoryRequest *finished_req);
 
     /* Interface functions for user code */
-
+    
     /// @brief Loads the given address into memory and enables access to it. This is a blocking operation currently. The task will be suspended until it is finished.
     /// @param virtual_addr The virtual memory address of the access
-    void access(uint32_t virtual_addr);
+    /// @param slot The mpu region that will be used to cover it. Regions 1 and 2 do not have execution permission.
+    ///                             This is useful in cases like memcpy, where you need access to both memory regions at once.
+    ///                             You have to clear the auxiliary region manually when done.
+    void access(uint32_t virtual_addr, MpuRegionSlot slot = MpuRegionSlot::SLOT_DATA);
+
+    /// @brief Clears the given MPU region access.
+    void clear_region(MpuRegionSlot slot);
 
     uintptr_t get_physical_ptr(uint32_t virtual_addr);
 
@@ -97,7 +118,17 @@ public:
     /// @brief Get the virtual address of the frame
     /// @param frame_id The frame to get the virtual address of
     /// @return virtual address of the frame
-    uintptr_t get_vaddr_from_frame(uint32_t frame_id);
+    uintptr_t get_vaddr_from_frame(int16_t frame_id);
+
+    /// @brief Get the frame ID given a physical address
+    /// @param paddr The physical address pointing into the frame storage
+    /// @return The frame ID that contains this physical address
+    uint32_t get_frame_id_from_paddr(uint32_t paddr);
+
+    /// @brief Get the virtual address from a physical pointer
+    /// @param paddr The physical address to convert
+    /// @return The corresponding virtual address
+    uintptr_t get_vaddr_from_paddr(uint32_t paddr);
 
     /* === memory allocation functions === */
 
@@ -107,6 +138,22 @@ public:
     void *alloc(size_t mem_size);
 
     void free(uint32_t virtual_addr);
+
+    /// @brief Stores the mapping of the original address and adjusted address as the address hot-patching
+    ///     adjusts the base address, which is the address need for free, when the offset access gets larger
+    ///     than a page.
+    /// @param original_address The original address. The one VMM::alloc provided.
+    /// @param adjusted_address The edited address to map from.
+    void register_address_alias(uint32_t original_address, uint32_t adjusted_address);
+    
+    /// @brief Get the original address given the shifted addresses
+    /// @param adjusted_address The shifted address
+    /// @return The original, unshifted address. If there is no mapping, it just returns the same address back
+    uint32_t resolve_alias_to_virtual_base(uint32_t adjusted_address);
+
+    /// @brief Removes the mapping made in resolve_alias_to_virtual_base
+    /// @param adjusted_address The shifted address mapping to remove
+    void remove_alias_to_virtual_base(uint32_t adjusted_address);
     /* ========================= */
 
     /* === File Functions === */

@@ -26,7 +26,7 @@ class ExternalMemory {
     QueueHandle_t mem_requests;
 
     void *rx_buffer;    // Stores a pointer to any data the communication handler sends to the External Memory
-    MemoryRequest active_req;
+    uint8_t *current_request_buffer;  // Buffer for the currently processing request
 
     VMM *internal_memory;
 

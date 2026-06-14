@@ -37,7 +37,7 @@ struct MemoryRequest {
     MemoryOp op;
     /*
     READ | WRITE: The virtual page being operated on.
-    ALLOC: Returns the newly provided page id.
+    ALLOC: Returns the newly provided virtual address.
     FOPEN: Pointer to the file name
     FREAD | FWRITE: The file offset
     FREE: The virtual address to free

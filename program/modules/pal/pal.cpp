@@ -4,7 +4,11 @@
 #include <cstdio>
 
 // Custom memset for Virtual Addresses
-void _vmemset(uint32_t dest_v_addr, int value, size_t count) {
+void _vmemset(void *ptr, int value, size_t count) {
+    uint32_t dest_v_addr = vmm.resolve_alias_to_virtual_base((uint32_t)ptr);
+    if(dest_v_addr < VIRTUAL_MEMORY_BASE) {
+        dest_v_addr = vmm.get_vaddr_from_paddr(dest_v_addr);
+    }
     while (count > 0) {
         // 1. Ensure the page is resident and marked as dirty
         // Calling access() handles the Page Fault logic and LRU updates
@@ -30,15 +34,23 @@ void _vmemset(uint32_t dest_v_addr, int value, size_t count) {
 }
 
 // Custom memcpy for Virtual Addresses
-void _vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
+void _vmemcpy(void *dest, void *src, size_t count) {
+    // Convert the sram_frame address to virtual if they aren't already virtual.
+    // This will happen if the memory object was previously accessed.
+    uint32_t dest_v_addr = vmm.resolve_alias_to_virtual_base((uint32_t)dest);
+    uint32_t src_v_addr = vmm.resolve_alias_to_virtual_base((uint32_t)src);
+    if(dest_v_addr < VIRTUAL_MEMORY_BASE) {
+        dest_v_addr = vmm.get_vaddr_from_paddr(dest_v_addr);
+    }
+    if(src_v_addr < VIRTUAL_MEMORY_BASE) {
+        src_v_addr = vmm.get_vaddr_from_paddr(src_v_addr);
+    }
     while (count > 0) {
         // 1. Force the pages into RAM via access() (just for the first byte of each page)
         // This triggers the page fault logic if necessary.
-        vmm.access(dest_v_addr);
-        vmm.access(src_v_addr);
+        vmm.access(src_v_addr, VMM::MpuRegionSlot::SLOT_DATA);
+        vmm.access(dest_v_addr, VMM::MpuRegionSlot::SLOT_AUX_DATA);
 
-        uint32_t dest_page = dest_v_addr / PAGE_SIZE;
-        uint32_t src_page = src_v_addr / PAGE_SIZE;
         uint32_t dest_off = dest_v_addr % PAGE_SIZE;
         uint32_t src_off = src_v_addr % PAGE_SIZE;
 
@@ -58,6 +70,8 @@ void _vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count) {
         src_v_addr += chunk;
         count -= chunk;
     }
+    vmm.clear_region(VMM::MpuRegionSlot::SLOT_AUX_DATA);
+    vmm.clear_region(VMM::MpuRegionSlot::SLOT_DATA);
 }
 
 void *_vcalloc(size_t num, size_t size)
@@ -106,7 +120,12 @@ void *_vmalloc(size_t size)
 
 void _vfree(void *ptr)
 {
-    vmm.free((uint32_t)ptr);
+    uint32_t virtual_addr = vmm.resolve_alias_to_virtual_base((uint32_t)ptr); // Will return virtual_addr unedited if it can't resolve it
+
+    if(virtual_addr < VIRTUAL_MEMORY_BASE) {    // Standard physical pointer
+        virtual_addr = vmm.get_vaddr_from_paddr((uint32_t)ptr);
+    }
+    vmm.free(virtual_addr);
 }
 
 int _vprintf(const char *format, ...)
@@ -115,7 +134,7 @@ int _vprintf(const char *format, ...)
     va_start(args, format);
 
     int result;
-    if(get_core_num() == 1) {
+    if(get_core_num() == 1 && (uint32_t)format >= VIRTUAL_MEMORY_BASE) {
         const char* physical_format_addr = (const char *)(vmm.get_physical_ptr((uint32_t)format));
 
         // Format the string into the buffer
@@ -124,9 +143,6 @@ int _vprintf(const char *format, ...)
     } else {
         result = vsnprintf(formatted_text, sizeof(formatted_text), format, args);
     }
-    
-
-    
 
     if (result > 0) {
         MemoryRequest req = {
@@ -136,10 +152,11 @@ int _vprintf(const char *format, ...)
         external_memory.submit_request(req);
     }
 
+    va_end(args);
     return result;
 }
 
 void _vsleep(uint32_t time)
 {
-    busy_wait_us(time * 100);
+    busy_wait_us(time * 1000);
 }

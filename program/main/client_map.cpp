@@ -8,6 +8,10 @@
 
 #include "debug_led.h"
 
+#include "hardware/irq.h"
+#include "hardware/exception.h"
+
+
 // Limit visibility to only this file
 namespace {
     CLIENT::main_func_t client_main = nullptr;
@@ -17,6 +21,11 @@ volatile bool CLIENT::task_enabled = false;
 
 
 void CLIENT::setup_client_task(){
+    // Drain Core 0's RX FIFO to remove any stale data from previous runs/resets
+    while (multicore_fifo_rvalid()) {
+        (void)multicore_fifo_pop_blocking();
+    }
+    
     multicore_reset_core1();
     multicore_launch_core1(client_task);
 }
@@ -51,6 +60,7 @@ void CLIENT::client_task() {
         ws2812_send_pixel(100,100,100);
         client_main();  // execute the code
     }
+
 
     while(1) {
         _vprintf("The client program has closed or is null.");

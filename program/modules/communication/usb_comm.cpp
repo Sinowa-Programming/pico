@@ -29,7 +29,7 @@ void usb_command_task(void *param) {
             switch (cmd.cmd) {
                 case START_CLIENT: {
                     // Make the new address resident (may block waiting for external memory)
-                    vmm.access(cmd.vaddr);
+                    vmm.access(cmd.vaddr, VMM::MpuRegionSlot::SLOT_EXEC);
                     _vprintf("After vmm access. Offset: 0x%x", cmd.vaddr - VIRTUAL_MEMORY_BASE);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
                     CLIENT::start_client_task();

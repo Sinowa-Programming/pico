@@ -8,6 +8,9 @@
  * @return The index of the base register (0-15), or 0xFF if not recognized.
  */
 uint8_t decode_instruction_base_register(uint32_t pc) {
+    // Strip the Thumb mode bit to ensure an aligned memory read
+    pc &= ~1UL;
+    
     // Thumb instructions are minimally 2-byte aligned.
     // Read the first halfword (hw1) of the instruction.
     uint16_t hw1 = *(uint16_t*)pc;

@@ -10,8 +10,8 @@
 extern "C" {
 #endif
 
-extern void _vmemset(uint32_t dest_v_addr, int value, size_t count);
-extern void _vmemcpy(uint32_t dest_v_addr, uint32_t src_v_addr, size_t count);
+extern void _vmemset(void *ptr, int value, size_t count);
+extern void _vmemcpy(void *dest, void *src, size_t count);
 extern void *_vcalloc(size_t num, size_t size);
 extern void *_vmalloc(size_t size);
 extern void _vfree(void *ptr);
@@ -23,8 +23,8 @@ extern void _vsleep(uint32_t time);
 typedef struct {
     void (*sleep)(uint32_t);
     int (*printf)(const char *, ...);
-    void (*memset)(uint32_t, int, size_t);
-    void (*memcpy)(uint32_t, uint32_t, size_t);
+    void (*memset)(void *, int, size_t);
+    void (*memcpy)(void *, void *, size_t);
     void *(*calloc)(size_t, size_t);
     void *(*malloc)(size_t);
     void (*free)(void *);
@@ -42,8 +42,8 @@ extern const FirmwareJMPTable api_table;    // This is in standard ram
     #define malloc(size)         FW_API->malloc(size)
     #define calloc(nmemb, size)  FW_API->calloc(nmemb, size)
     #define free(ptr)            FW_API->free(ptr)
-    #define memcpy(dest, src, n) FW_API->memcpy((uint32_t)dest, (uint32_t)src, n)
-    #define memset(dest, val, n) FW_API->memset((uint32_t)dest, val, n)
+    #define memcpy(dest, src, n) FW_API->memcpy(dest, src, n)
+    #define memset(dest, val, n) FW_API->memset(dest, val, n)
     #define printf(format, ...)  FW_API->printf(format, ##__VA_ARGS__)
     #define sleep(time)          FW_API->sleep(time)
 #endif
