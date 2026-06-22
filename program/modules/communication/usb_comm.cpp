@@ -82,6 +82,8 @@ void usb_device_task(void *param) {
     }
 }
 
+uint16_t expected_data_length = PAGE_SIZE;
+
 // === VMM specific. This won't exist for the spi version ===
 // Helper to safely move data
 // We use memcpy here because for <64 bytes, the CPU overhead of setting up
@@ -91,7 +93,7 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
         len = PAGE_SIZE - transfer_offset; // Prevent overflow
     }
 
-    // Copy from ephemeral USB buffer to safe VMM memory
+    // Copy from USB buffer to VMM memory
     memcpy(page_dest_ptr + transfer_offset, src, len);
     transfer_offset += len;
 }
@@ -116,35 +118,46 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
     }
 
     // Ensure we have at least the header (MCU_ID + CMD)
-    if (bufsize < 4) {
+    if (bufsize < sizeof(CommunicationHeader)) {
         return;
     }
 
-    uint8_t mcu_id = buffer[0];
-    if (mcu_id != MCU_ID) {
+    CommunicationHeader* header = (CommunicationHeader*)buffer;
+    if (header->mcu_id != MCU_ID) {
         return;
     }
 
-    uint8_t command = buffer[1];
-
+    uint8_t command = header->cmd;
+    uint16_t payload_len = header->data_length;
+    uint16_t header_size = sizeof(CommunicationHeader);
+    
     switch (command)
     {
         case PAGE_TABLE_WRITE:
+        case FILE_READ:
             page_dest_ptr = external_memory.get_memory_request_sram_buffer();
             transfer_offset = 0;
+            expected_data_length = payload_len;
             data_receiving = true;
 
             // Handle payload included in THIS packet (after the 4 header bytes)
-            if (bufsize > 4) {
-                buffer_data_chunk(buffer + 4, bufsize - 4);
+            if (bufsize > header_size) {
+                buffer_data_chunk(buffer + header_size, bufsize - header_size);
             }
 
             // Check if the entire payload somehow arrived in the first packet
-            if (transfer_offset >= PAGE_SIZE) {
+            if (transfer_offset >= expected_data_length) {
                 data_receiving = false;
                 external_memory.notify_transfer_completion();
             }
             break;
+
+        case FILE_OPEN: {
+            int32_t remote_file_id;
+            memcpy(&remote_file_id, buffer + header_size, sizeof(int32_t));
+            external_memory.notify_transfer_completion((void *)remote_file_id);
+            break;
+        }
 
         case PAGE_TABLE_ALLOC: {
             uint32_t vaddr;
@@ -152,6 +165,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             external_memory.notify_transfer_completion((void *)vaddr);
             break;
         }
+
         case START_CLIENT: { // This also resets the client if it is actively running
             uint32_t vaddr;
             memcpy(&vaddr, buffer + 4, sizeof(uint32_t));
@@ -167,24 +181,6 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
         case HALT_CLIENT:
         case RESUME_CLIENT:
             multicore_reset_core1();
-            break;
-
-        case FILE_OPEN: {
-            int32_t remote_file_id;
-            memcpy(&remote_file_id, buffer + 4, sizeof(int32_t));
-            external_memory.notify_transfer_completion((void *)remote_file_id);
-            break;
-        }
-
-        case FILE_READ:
-            page_dest_ptr = (uint8_t *)VIRTUAL_FILE_BASE;
-            transfer_offset = 0;
-            data_receiving = true;
-
-            // Handle payload included in THIS packet (after the 2 header bytes)
-            if (bufsize > 4) {
-                buffer_data_chunk(buffer + 4, bufsize - 4);
-            }
             break;
         default:
             // An invalid command was sent

@@ -12,8 +12,6 @@
 #include "mpu_config.h"
 #include "static_address_map.h"
 
-extern inline void set_addr_exec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
-extern inline void set_addr_nexec(uint16_t region_number, uint32_t base_address, uint32_t limit_address, bool access);
 extern uint32_t __vmm_frames_start;
 
 class ExternalMemory;
@@ -31,9 +29,7 @@ private:
     void report_mutex_status();
 
     // File
-    QueueHandle_t file_lru_fifo;    // Simple LRU to evict an unused file. Each entry is index(file_data)
-    VirtualFile file_data[MAX_VIRTUAL_FILES];
-    uint8_t file_frames[MAX_VIRTUAL_FILES][PAGE_SIZE];      // The physical frame location of a file
+    
 
     // Translation Tables
     int16_t page_to_frame[NUM_PAGES];                       // Virtual Page ID -> physical sram frame idx
@@ -155,16 +151,6 @@ public:
     /// @param adjusted_address The shifted address mapping to remove
     void remove_alias_to_virtual_base(uint32_t adjusted_address);
     /* ========================= */
-
-    /* === File Functions === */
-    VirtualFile* file_open(const char *file, char* mode);
-    size_t file_write( const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream );
-    size_t file_read( void * ptr, size_t size, size_t count, VirtualFile * stream );
-    int file_close( VirtualFile * stream );
-
-    uint8_t* get_file_frame(VirtualFile &file_id) { return file_frames[file_id.descriptor]; };
-
-    void file_access(VirtualFile &file_id, uint32_t file_offset);
 };
 
 #endif  // INTERNAL_MEMORY_H

@@ -1,6 +1,7 @@
 #ifndef PAL_H
 #define PAL_H
 
+#include "virtual_file.h"
 #include "internal_memory.h"
 #include "external_memory.h"
 

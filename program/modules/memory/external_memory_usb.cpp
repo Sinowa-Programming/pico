@@ -136,6 +136,8 @@ void ExternalMemory::run() {
 
                     // Sleep until the request is done
                     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+                    active_req.arg3 = (uint32_t)rx_buffer;
                     break;
                 }
 
@@ -204,18 +206,22 @@ void ExternalMemory::run() {
             }
 
             if(active_req.task != NULL || active_req.from_core1) {
-                // xTaskNotifyGive(active_req.task);
-                // Notify internal memory that the page has been provided via rx_buffer
-                internal_memory->notify_completion(&active_req);
+                if (active_req.op == MemoryOp::FOPEN || active_req.op == MemoryOp::FCLOSE ||
+                    active_req.op == MemoryOp::FREAD || active_req.op == MemoryOp::FWRITE) {
+                    virtual_file_manager->notify_completion(&active_req);
+                } else {
+                    internal_memory->notify_completion(&active_req);
+                }
             }
         }
     }
 }
 
-ExternalMemory::ExternalMemory(VMM *internal_memory, uint32_t queue_size) {
+ExternalMemory::ExternalMemory(VMM *internal_memory, VFM *vfm, uint32_t queue_size) {
     mem_requests = xQueueCreate(queue_size, sizeof(MemoryRequest));
     setup_dma();
     this->internal_memory = internal_memory;
+    this->virtual_file_manager = vfm;
     current_request_buffer = nullptr;
     ext_mem_instance = this;
 }

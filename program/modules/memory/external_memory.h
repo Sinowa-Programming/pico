@@ -10,6 +10,7 @@
 #include "portmacro.h"
 
 #include "internal_memory.h"
+#include "virtual_file.h"
 
 #define USB_COMM
 // #define SPI_COMM
@@ -29,6 +30,7 @@ class ExternalMemory {
     uint8_t *current_request_buffer;  // Buffer for the currently processing request
 
     VMM *internal_memory;
+    VFM *virtual_file_manager;
 
     void core0_fifo_isr();
     void setup_dma();
@@ -50,7 +52,7 @@ public:
     /// @brief This handles the movement of memory in and out of the host's sram page blocks
     /// @param internal_memory This it the object to respond to when a memory request has been completed.
     /// @param queue_size The amount of request that can be sent
-    ExternalMemory(VMM *internal_memory, uint32_t queue_size);
+    ExternalMemory(VMM *internal_memory, VFM *vfm, uint32_t queue_size);
     void start();
 
     // Tell the External Memory to either read or write a specific page

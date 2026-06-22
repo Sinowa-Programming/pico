@@ -16,6 +16,7 @@
 
 ExternalMemory external_memory;
 VMM vmm;
+VFM vfm;
 
 // The API table the client will use
 extern const FirmwareJMPTable api_table;
@@ -37,7 +38,8 @@ int main()
     // Setup the memory managers
     ws2812_send_pixel(0, 0, 0);
     vmm = VMM();
-    external_memory = ExternalMemory(&vmm, (uint32_t)10);
+    vfm = VFM();
+    external_memory = ExternalMemory(&vmm, &vfm, (uint32_t)10);
     vmm.add_external_memory(&external_memory);
 
     // Start the memory managers
