@@ -12,7 +12,11 @@ const FirmwareJMPTable api_table = {
     .memcpy = _vmemcpy,
     .calloc = _vcalloc,
     .malloc = _vmalloc,
-    .free   = _vfree
+    .free   = _vfree,
+    .fopen  = _vfopen,
+    .fclose = _vfclose,
+    .fread  = _vfread,
+    .fwrite = _vfwrite
 };
 
 #ifdef __cplusplus

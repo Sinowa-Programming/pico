@@ -10,6 +10,7 @@
 // ====Global Variables====
 extern ExternalMemory external_memory;
 extern VMM vmm;    // This will need to be setup in main().
+extern VFM vfm;
 // ------------------------
 
 #ifdef __cplusplus
@@ -22,6 +23,12 @@ void _vmemcpy(void *dest, void *src, size_t count);
 void *_vcalloc(size_t num, size_t size);
 void *_vmalloc(size_t size);
 void _vfree(void *ptr);
+
+/* === File Functions === */
+VirtualFile *_vfopen(const char * filename, const char * mode);
+int _vfclose(VirtualFile * stream);
+size_t _vfread(void * ptr, size_t size, size_t count, VirtualFile * stream);
+size_t _vfwrite(const void * ptr, size_t size, size_t count, VirtualFile * stream);
 
 /* === Other functions === */
 static char formatted_text[256];  // Buffer to store the text for the log command

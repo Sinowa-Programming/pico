@@ -30,6 +30,8 @@ class ExternalMemory;
  * flags - Is the file "r" read, "w" write, or something else? Prevents having to write back unmodified data.
  * local - Is the file loaded onto the machine.
  */
+#ifndef VIRTUAL_FILE_STRUCT_DEFINED
+#define VIRTUAL_FILE_STRUCT_DEFINED
 typedef struct {
     uint32_t file_hash; // 4 bytes
     int descriptor;     // 4 bytes
@@ -40,7 +42,7 @@ typedef struct {
     bool local;         // 1 byte
     char *flags;        // 4 bytes
 } VirtualFile;          // 25 Bytes
-
+#endif
 
 /// @brief The hash function for all files. Used to speed up all subsequent comparisons between file names.
 /// @param file The file name to be hashed
@@ -75,17 +77,17 @@ class VFM {
 
     ExternalMemory *_external_memory;
 
-    public:
-        VFM();
-    
-        // Communication with External Memory
-        void notify_completion(MemoryRequest *finished_req);
+public:
+    VFM();
 
-        VirtualFile *fopen(const char *path, const char *mode_str);
+    // Communication with External Memory
+    void notify_completion(MemoryRequest *finished_req);
 
-        size_t fwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream);
-        size_t fread(void * ptr, size_t size, size_t count, VirtualFile * stream);
-        int fclose(VirtualFile * stream);
+    VirtualFile *fopen(const char *path, const char *mode_str);
+
+    size_t fwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream);
+    size_t fread(void * ptr, size_t size, size_t count, VirtualFile * stream);
+    int fclose(VirtualFile * stream);
 };
 
 

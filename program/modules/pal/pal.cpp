@@ -128,6 +128,26 @@ void _vfree(void *ptr)
     vmm.free(virtual_addr);
 }
 
+VirtualFile *_vfopen(const char *filename, const char *mode)
+{
+    return vfm.fopen(filename, mode);
+}
+
+int _vfclose(VirtualFile *stream)
+{
+    return vfm.fclose(stream);
+}
+
+size_t _vfread(void *ptr, size_t size, size_t count, VirtualFile *stream)
+{
+    return vfm.fread(ptr, size, count, stream);
+}
+
+size_t _vfwrite(const void *ptr, size_t size, size_t count, VirtualFile *stream)
+{
+    return vfm.fwrite(ptr, size, count, stream);
+}
+
 int _vprintf(const char *format, ...)
 {
     va_list args;
