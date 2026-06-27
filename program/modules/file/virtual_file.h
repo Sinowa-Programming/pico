@@ -59,7 +59,7 @@ class VFM {
     
     uint16_t file_lru[MAX_VIRTUAL_FILE_FRAMES];    // Map of each age index to a file frame
     uint8_t file_ages[MAX_VIRTUAL_FILE_FRAMES] = { 0 };    // The ages of each file frame
-    int8_t num_occupied_files = 0;
+    uint8_t num_occupied_files = 0;
 
     VirtualFile file_data[MAX_VIRTUAL_FILES] = { 0 };
     uint8_t file_frames[MAX_VIRTUAL_FILE_FRAMES][VIRTUAL_FILE_PAGE_SIZE];      // The physical frame location of a file
@@ -80,20 +80,16 @@ class VFM {
 public:
     VFM();
 
+    VirtualFile *get_file_data() { return file_data; };
+    uint8_t get_open_file_cnt() { return num_occupied_files; };
+
     // Communication with External Memory
     void notify_completion(MemoryRequest *finished_req);
 
     VirtualFile *fopen(const char *path, const char *mode_str);
-
     size_t fwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream);
     size_t fread(void * ptr, size_t size, size_t count, VirtualFile * stream);
     int fclose(VirtualFile * stream);
 };
-
-
-// VirtualFile* _vfopen(const char *file, const char* mode);
-// int _vfclose(void* ptr);
-// size_t _vfwrite(const void* __restrict__ buffer, size_t size, size_t count, VirtualFile* __restrict__ stream);
-// size_t _vfread( void * ptr, size_t size, size_t count, VirtualFile * stream );
 
 #endif  // VIRTUAL_FILE_H

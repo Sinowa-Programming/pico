@@ -3,6 +3,7 @@
 #include "memory.hpp"
 #include "internal_memory.h"
 #include "comm_commands.h"
+#include "client_map.h"
 
 #include <cstring>
 #include "pico/multicore.h"
@@ -18,7 +19,7 @@ static void send_chunked(uint8_t* data, uint32_t len);
 ExternalMemory* ext_mem_instance = nullptr;
 volatile bool request_copied = false;
 
-void ExternalMemory::core0_fifo_isr() {
+void ExternalMemory::core0_fifo() {
     BaseType_t ret;
     while(true) {
         if (multicore_fifo_rvalid()) {
@@ -197,6 +198,33 @@ void ExternalMemory::run() {
                     send_chunked(active_req.buffer, VIRTUAL_FILE_PAGE_SIZE);
                     break;
                 }
+
+                /* CLIENT LOAD STORE */
+                case MemoryOp::CLIENT_STORE: {
+                    CLIENT::ClientPCBStatic *process_control_blk_main = (CLIENT::ClientPCBStatic *)active_req.arg1;
+
+                    // Calculate the data size
+                    uint16_t client_pcb_size = sizeof(CLIENT::ClientPCBStatic);
+                    uint16_t fpu_size = 0;
+                    if (process_control_blk_main->fpu_active) {
+                        fpu_size = sizeof(CLIENT::ClientPCBFPU);
+                    }
+
+                    uint16_t addr_map_size = sizeof(StaticAddressMap<VMM::ADJUSTED_ADDRESS_LIMIT>::AddressMap) * process_control_blk_main->addr_map_size;
+                    uint16_t v_file_size = sizeof(VirtualFile) * process_control_blk_main->open_file_cnt;
+
+                    CommunicationHeader header = {
+                        MCU_ID,
+                        CommCommand::STORE_CLIENT,
+                        client_pcb_size + fpu_size + addr_map_size + v_file_size
+                    };
+                    send_chunked((uint8_t*)&header, sizeof(header));
+                    send_chunked((uint8_t*)&(active_req.arg1), client_pcb_size);
+                    send_chunked((uint8_t*)&(active_req.arg2), fpu_size);
+                    send_chunked((uint8_t*)&(active_req.arg3), addr_map_size);
+                    send_chunked(active_req.buffer, v_file_size);
+                    break;
+                }
             }
 
             if (active_req.req != nullptr) {
@@ -209,6 +237,8 @@ void ExternalMemory::run() {
                 if (active_req.op == MemoryOp::FOPEN || active_req.op == MemoryOp::FCLOSE ||
                     active_req.op == MemoryOp::FREAD || active_req.op == MemoryOp::FWRITE) {
                     virtual_file_manager->notify_completion(&active_req);
+                } else if(active_req.op == MemoryOp::CLIENT_STORE || active_req.op == MemoryOp::CLIENT_LOAD) {
+                    CLIENT::external_mem_notify_completion = true;
                 } else {
                     internal_memory->notify_completion(&active_req);
                 }

@@ -32,7 +32,7 @@ class ExternalMemory {
     VMM *internal_memory;
     VFM *virtual_file_manager;
 
-    void core0_fifo_isr();
+    void core0_fifo();
     void setup_dma();
 
     void run();
@@ -44,7 +44,7 @@ class ExternalMemory {
 
     static void core0_fifo_task_entry(void* params) {
         ExternalMemory *external_memory = static_cast<ExternalMemory*>(params);
-        external_memory->core0_fifo_isr();
+        external_memory->core0_fifo();
     }
 
 public:

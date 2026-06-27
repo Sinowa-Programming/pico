@@ -178,8 +178,8 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
         }
 
         // There is no built-in, pico library way to do this.
-        case HALT_CLIENT:
-        case RESUME_CLIENT:
+        // case STORE_CLIENT:
+        case LOAD_CLIENT:
             multicore_reset_core1();
             break;
         default:

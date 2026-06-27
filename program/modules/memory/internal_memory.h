@@ -6,6 +6,7 @@
 #include <pico/mutex.h>
 #include <pico/sem.h>
 
+#include "inter_core.h"
 #include "memory.hpp"
 #include "external_memory.h"    // For sending memory requests
 #include "virtual_file.h"
@@ -23,13 +24,11 @@ public:
         SLOT_DATA     = 1,
         SLOT_AUX_DATA = 2
     };
-private:
+
     static const uint16_t ADJUSTED_ADDRESS_LIMIT = 20;
+private:
 
     void report_mutex_status();
-
-    // File
-    
 
     // Translation Tables
     int16_t page_to_frame[NUM_PAGES];                       // Virtual Page ID -> physical sram frame idx
@@ -53,7 +52,7 @@ private:
     void clear_page(uint32_t page_id);
     uint8_t get_available_frame(bool* is_page_dirty, uint32_t* page_to_write);  // Returns the first available frame's index( Will boot a page is needed. )
 
-    StaticAddressMap<20> address_map;
+    StaticAddressMap<ADJUSTED_ADDRESS_LIMIT> address_map;
 
     /* === MPU CODE === */
     /* MPU Regions used:
@@ -97,7 +96,10 @@ public:
     void notify_completion(MemoryRequest *finished_req);
 
     /* Interface functions for user code */
-    
+
+    uint16_t *get_mpu_enabled() { return mpu_enabled; };
+    StaticAddressMap<ADJUSTED_ADDRESS_LIMIT> *get_address_map() { return &address_map; };
+
     /// @brief Loads the given address into memory and enables access to it. This is a blocking operation currently. The task will be suspended until it is finished.
     /// @param virtual_addr The virtual memory address of the access
     /// @param slot The mpu region that will be used to cover it. Regions 1 and 2 do not have execution permission.

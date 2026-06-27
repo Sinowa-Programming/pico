@@ -7,15 +7,18 @@
 // Binary Tree that stores the addresses of objects
 template <uint32_t max_size>
 class StaticAddressMap {
-    struct AddressMap {
-        uint32_t original_address;
-        uint32_t adjusted_address;
-    };
-
     AddressMap static_container_arr[max_size];
     uint32_t element_cnt = 0;
     public:
+        struct AddressMap {
+            uint32_t original_address;
+            uint32_t adjusted_address;
+        };
+
         StaticAddressMap() {}
+
+        AddressMap *get_address_map_container() { return static_container_arr; };
+        uint32_t get_element_count() { return element_cnt; };
 
         /// @brief Adds the given entry to the AddressMap
         /// @param original_address The original address

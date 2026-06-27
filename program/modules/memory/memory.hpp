@@ -30,7 +30,11 @@ typedef enum {
     FREAD,
     FWRITE,
     FOPEN,
-    FCLOSE
+    FCLOSE,
+
+    // For client loading and storing
+    CLIENT_STORE,
+    CLIENT_LOAD
 } MemoryOp;
 
 struct MemoryRequest {
@@ -41,6 +45,7 @@ struct MemoryRequest {
     FOPEN: Pointer to the file name
     FREAD | FWRITE: The file offset
     FREE: The virtual address to free
+    CLIENT_STORE: Address to client_pcb_snapshot
     */
     uint32_t arg1; // Generic argument 1 (used for virtual page id, file offset, or filename pointer)
 
@@ -49,6 +54,7 @@ struct MemoryRequest {
     ALLOC: Memory request size
     FOPEN: Returned file size
     FREAD | FWRITE: The size of the area to load/save.
+    CLIENT_STORE: Address to client_pcb_fpu_snapshot
     */
     uint32_t arg2; // Generic argument 2 (used for returned frame index, file size, or remote file id)
 
@@ -57,12 +63,14 @@ struct MemoryRequest {
     FCLOSE: The Remote File ID to close.
     FREAD: Remote File ID
     FWRITE: Remote File ID
+    CLIENT_STORE: Address to client_address_map_snapshot
     */
     uint32_t arg3;
 
     // If the operation is writing to or reading from the buffer then this is used.
     // Currently used by: READ | WRITE | FWRITE | FREAD
     // Pointer to the page in memory
+    // CLIENT_STORE: Address to client_virtual_file_snapshot
     uint8_t* buffer;
     TaskHandle_t task;      // The task that owns the request
     MemoryRequest *req;     // Pointer to the address

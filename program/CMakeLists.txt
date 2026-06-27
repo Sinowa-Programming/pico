@@ -22,10 +22,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/libs
 
     ${CMAKE_CURRENT_LIST_DIR}/..
+    ${CMAKE_CURRENT_LIST_DIR}/modules/inter_core
     ${CMAKE_CURRENT_LIST_DIR}/modules/pal
     ${CMAKE_CURRENT_LIST_DIR}/modules/communication
     ${CMAKE_CURRENT_LIST_DIR}/modules/memory
     ${CMAKE_CURRENT_LIST_DIR}/modules/file
+    ${CMAKE_CURRENT_LIST_DIR}/modules/client
     ${CMAKE_CURRENT_LIST_DIR}/main
     ${CMAKE_CURRENT_LIST_DIR}   # For tusb_config.h
 )

@@ -87,25 +87,27 @@ void VMM::update_mpu_access(uint16_t frame_to_enable, MpuRegionSlot slot)
     uint32_t base_addr = (uint32_t)sram_frames[frame_to_enable];
     uint32_t limit_addr = (base_addr + PAGE_SIZE) - 1;
 
-    pending_mpu_cmd.region = mpu_region;
-    pending_mpu_cmd.base_addr = base_addr;
-    pending_mpu_cmd.limit_addr = limit_addr;
-    pending_mpu_cmd.access = true;
-    pending_mpu_cmd.execute = (slot == MpuRegionSlot::SLOT_EXEC);
-    pending_mpu_cmd.clear = false;
+    pending_mpu_region_config.region = mpu_region;
+    pending_mpu_region_config.base_addr = base_addr;
+    pending_mpu_region_config.limit_addr = limit_addr;
+    pending_mpu_region_config.access = true;
+    pending_mpu_region_config.execute = (slot == MpuRegionSlot::SLOT_EXEC);
+    pending_mpu_region_config.clear = false;
+
+    pending_core_cmd.type = InterCoreCommandType::MpuSetRegion;
 
     mpu_ack_flag = false;
     __DMB();
     
     if (get_core_num() == 0) {
-        multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
+        multicore_fifo_push_blocking((uint32_t)&pending_core_cmd);
 
         // Wait for ACK from core1
         while (!mpu_ack_flag) {
             tight_loop_contents();
         }
     } else {
-        set_addr(pending_mpu_cmd.region, pending_mpu_cmd.base_addr, pending_mpu_cmd.limit_addr, pending_mpu_cmd.access, pending_mpu_cmd.execute);
+        set_addr(pending_mpu_region_config.region, pending_mpu_region_config.base_addr, pending_mpu_region_config.limit_addr, pending_mpu_region_config.access, pending_mpu_region_config.execute);
         __DSB();
         __ISB();
     }
@@ -119,18 +121,20 @@ void VMM::clear_region(MpuRegionSlot slot)
     uint16_t mpu_region = slot;
 
     // Disable access to the MPU region
-    pending_mpu_cmd.region = mpu_region;
-    pending_mpu_cmd.base_addr = 0;
-    pending_mpu_cmd.limit_addr = 0;
-    pending_mpu_cmd.access = false;
-    pending_mpu_cmd.execute = false;
-    pending_mpu_cmd.clear = true;
+    pending_mpu_region_config.region = mpu_region;
+    pending_mpu_region_config.base_addr = 0;
+    pending_mpu_region_config.limit_addr = 0;
+    pending_mpu_region_config.access = false;
+    pending_mpu_region_config.execute = false;
+    pending_mpu_region_config.clear = true;
+
+    pending_core_cmd.type = InterCoreCommandType::MpuClearRegion;
 
     mpu_ack_flag = false;
     __DMB();
     
     if (get_core_num() == 0) {
-        multicore_fifo_push_blocking((uint32_t)&pending_mpu_cmd);
+        multicore_fifo_push_blocking((uint32_t)&pending_core_cmd);
 
         // Wait for ACK from core1
         while (!mpu_ack_flag) {
@@ -138,6 +142,8 @@ void VMM::clear_region(MpuRegionSlot slot)
         }
     } else {
         mpu_clear_region(mpu_region);
+        __DSB();
+        __ISB();
     }
 
     // Mark the region as having no frame enabled
