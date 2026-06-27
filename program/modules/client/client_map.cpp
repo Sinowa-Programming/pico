@@ -170,7 +170,9 @@ void CLIENT::store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
         .task = NULL
     };
     external_memory.submit_request(req);
+    external_mem_notify_completion = false;
 
+    vmm.write_all_data();
     while(!external_mem_notify_completion) {
         tight_loop_contents();
     }
@@ -184,6 +186,7 @@ void CLIENT::store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
 
 void CLIENT::load_client_isr()
 {
+    
 }
 
 void CLIENT::load_client_C()

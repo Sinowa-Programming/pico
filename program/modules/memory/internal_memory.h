@@ -107,6 +107,9 @@ public:
     ///                             You have to clear the auxiliary region manually when done.
     void access(uint32_t virtual_addr, MpuRegionSlot slot = MpuRegionSlot::SLOT_DATA);
 
+    /// @brief Writes all dirty data.
+    void write_all_data();
+
     /// @brief Clears the given MPU region access.
     void clear_region(MpuRegionSlot slot);
 

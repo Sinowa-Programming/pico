@@ -261,8 +261,7 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
 
         // Move to MRU (front of list)
         update_lru_access(finished_req->arg2);
-    }
-    else if (finished_req->op == MemoryOp::FREE) {
+    } else if (finished_req->op == MemoryOp::FREE) {
         // Mark the page and it's attached frame clear for future use if it is present
         uint32_t page_id = (finished_req->arg1 - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;
         if(is_resident.get(page_id)) {
@@ -272,6 +271,8 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
             page_to_frame[page_id] = -1;
             frame_to_page[frame] = 0xFFFFFFFF;
         }
+    } else if (finished_req->op == MemoryOp::WRITE) {
+        is_dirty.clear(finished_req->arg1);
     }
 
     if (finished_req->from_core1 && finished_req->op != MemoryOp::LOG && finished_req->op != MemoryOp::FREE) {
@@ -359,6 +360,44 @@ void VMM::access(uint32_t virtual_addr, MpuRegionSlot slot) {
     update_mpu_access(frame_idx, slot);
 }
 
+void VMM::write_all_data()
+{
+    mutex_enter_blocking(&vmmMutex);
+    for(int frame_num = 0; frame_num < MAX_PHYSICAL_FRAMES; ++frame_num) {
+        uint32_t page_id = frame_to_page[frame_num];
+
+        if(page_id == 0xFFFFFFFF || !is_dirty.get(page_id)) {
+            continue;
+        }
+
+        MemoryRequest write_req = {
+            .op = MemoryOp::WRITE,
+            .arg1 = page_id,
+            .buffer = sram_frames[frame_num],
+            .task = NULL // Fire and forget
+        };
+
+        mutex_exit(&vmmMutex);
+        _external_memory->submit_request(write_req);
+        mutex_enter_blocking(&vmmMutex);
+    }
+
+    bool is_core1 = (get_core_num() == 1);
+    MemoryRequest sync_req = {
+        .op = MemoryOp::SYNC,
+        .arg1 = 0,  // VMM
+        .task = is_core1 ? NULL : xTaskGetCurrentTaskHandle()
+    };
+
+    mutex_exit(&vmmMutex);
+    _external_memory->submit_request(sync_req);
+
+    if (is_core1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+}
 
 uintptr_t VMM::get_physical_ptr(uint32_t virtual_addr) {
     uint32_t page_id = (virtual_addr - VIRTUAL_MEMORY_BASE) / PAGE_SIZE;

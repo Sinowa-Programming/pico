@@ -239,6 +239,12 @@ void ExternalMemory::run() {
                     virtual_file_manager->notify_completion(&active_req);
                 } else if(active_req.op == MemoryOp::CLIENT_STORE || active_req.op == MemoryOp::CLIENT_LOAD) {
                     CLIENT::external_mem_notify_completion = true;
+                } else if(active_req.op == MemoryOp::SYNC) {
+                    if(active_req.arg1 == 0) {
+                        internal_memory->notify_completion(&active_req);
+                    } else if(active_req.arg1 == 1) {
+                        virtual_file_manager->notify_completion(&active_req);
+                    }
                 } else {
                     internal_memory->notify_completion(&active_req);
                 }

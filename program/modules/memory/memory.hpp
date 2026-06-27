@@ -19,6 +19,7 @@
 const uint32_t MAX_RESIDENT_BITS = MAX_PHYSICAL_FRAMES / 32;
 
 typedef enum {
+    SYNC,       // Calls notify_completion() when it is reached
     READ,       // The device wants to pull data from the host
     WRITE,      // The device wants to write data to the host
     ALLOC,      // The device needs the host to provide it with an empty page
@@ -40,6 +41,7 @@ typedef enum {
 struct MemoryRequest {
     MemoryOp op;
     /*
+    SYNC: 0 = VMM, 1 = VFM
     READ | WRITE: The virtual page being operated on.
     ALLOC: Returns the newly provided virtual address.
     FOPEN: Pointer to the file name
