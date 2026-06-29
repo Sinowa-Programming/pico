@@ -59,7 +59,7 @@ void core1_fifo_isr() {
             mpu_clear_region(pending_mpu_region_config.region);
         } else if (cmd->type == InterCoreCommandType::ClientStore) {
             // launch the store client isr
-            scb_hw->icsr = (1 << CLIENT::STORE_IRQ_NUM);
+            irq_set_pending(CLIENT::STORE_IRQ_NUM);
         } else {
             return;
         }

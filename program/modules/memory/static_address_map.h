@@ -19,6 +19,7 @@ class StaticAddressMap {
 
         AddressMap *get_address_map_container() { return static_container_arr; };
         uint32_t get_element_count() { return element_cnt; };
+        void set_element_count(uint32_t new_element_count) { element_count = new_element_count; };
 
         /// @brief Adds the given entry to the AddressMap
         /// @param original_address The original address

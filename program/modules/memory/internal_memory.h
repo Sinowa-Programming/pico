@@ -98,6 +98,7 @@ public:
     /* Interface functions for user code */
 
     uint16_t *get_mpu_enabled() { return mpu_enabled; };
+    void *set_mpu_enabled(volatile uint16_t *new_mpu_enabled);
     StaticAddressMap<ADJUSTED_ADDRESS_LIMIT> *get_address_map() { return &address_map; };
 
     /// @brief Loads the given address into memory and enables access to it. This is a blocking operation currently. The task will be suspended until it is finished.

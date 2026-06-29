@@ -220,7 +220,9 @@ void ExternalMemory::run() {
                     };
                     send_chunked((uint8_t*)&header, sizeof(header));
                     send_chunked((uint8_t*)&(active_req.arg1), client_pcb_size);
-                    send_chunked((uint8_t*)&(active_req.arg2), fpu_size);
+                    if(process_control_blk_main->fpu_active) {
+                        send_chunked((uint8_t*)&(active_req.arg2), fpu_size);
+                    }
                     send_chunked((uint8_t*)&(active_req.arg3), addr_map_size);
                     send_chunked(active_req.buffer, v_file_size);
                     break;

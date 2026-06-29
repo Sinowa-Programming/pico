@@ -20,17 +20,17 @@ uint8_t VFM::get_available_frame(bool* is_frame_dirty, uint32_t* frame_to_write)
     mutex_enter_blocking(&vfmMutex);
     uint32_t frame = -1;
 
-    if (num_occupied_files < MAX_VIRTUAL_FILES) {
+    if (num_occupied_files < MAX_VIRTUAL_FILE_FRAMES) {
         frame = num_occupied_files;
         num_occupied_files++;
         return frame;
-    } 
-    for (int i=0; i < MAX_VIRTUAL_FILES; ++i) {
+    }
+    for (int i=0; i < MAX_VIRTUAL_FILE_FRAMES; ++i) {
         uint8_t frame_id = file_lru[i];
         VirtualFile file = file_data[frame_id];
 
         // Evict if the page is valid and NOT dirty.
-        if (file.remote_id != -1 && !(file.mode & O_RDONLY )) {
+        if (file.remote_id != -1 && file.mode != O_RDONLY) {
             frame = frame_id;
             break;
         }
@@ -38,7 +38,7 @@ uint8_t VFM::get_available_frame(bool* is_frame_dirty, uint32_t* frame_to_write)
 
     if(frame == -1) {
         // RAM is full and all frames are dirty. Evict the LRU frame.
-        frame = file_lru[MAX_VIRTUAL_FILES - 1];
+        frame = file_lru[MAX_VIRTUAL_FILE_FRAMES - 1];
 
         VirtualFile *file = &file_data[frame];
         MemoryRequest write_req = {
@@ -91,7 +91,7 @@ void VFM::move_to_back(uint8_t frame_idx)
 void VFM::update_lru_access(uint8_t frame_idx)
 {
     int pos = -1;
-    for (int i = 0; i < MAX_VIRTUAL_FILES; i++) {
+    for (int i = 0; i < MAX_VIRTUAL_FILE_FRAMES; i++) {
         if (file_lru[i] == frame_idx) {
             pos = i;
             break;
@@ -112,8 +112,51 @@ VFM::VFM()
     mutex_init(&vfmMutex);
     sem_init(&core1_wait_sem, 0, 1);
 
-    for(int i = 0; i < MAX_VIRTUAL_FILES; i++) {
+    for(int i = 0; i < MAX_VIRTUAL_FILE_FRAMES; i++) {
         file_lru[i] = i;
+    }
+}
+
+void VFM::write_all_data()
+{
+    mutex_enter_blocking(&vfmMutex);
+
+    for (int frame_num = 0; frame_num < MAX_VIRTUAL_FILE_FRAMES; ++frame_num) {
+        VirtualFile *file = &file_data[frame_num];
+
+        if (file->remote_id == -1 || file->mode == O_RDONLY) {
+            continue;
+        }
+
+        MemoryRequest write_req = {
+            .op = MemoryOp::FWRITE,
+            .arg3 = (uint32_t)file->remote_id,
+            .buffer = file_frames[frame_num],
+            .task = NULL // Fire and forget
+        };
+        write_req.req = &write_req;
+
+        mutex_exit(&vfmMutex);
+        _external_memory->submit_request(write_req);
+        mutex_enter_blocking(&vfmMutex);
+    }
+
+    // Submit a sync request to wait for all queued writes to finish
+    bool is_core1 = (get_core_num() == 1);
+    MemoryRequest sync_req = {
+        .op = MemoryOp::SYNC,
+        .arg1 = 1,  // VFM
+        .task = is_core1 ? NULL : xTaskGetCurrentTaskHandle()
+    };
+    sync_req.req = &sync_req;
+
+    mutex_exit(&vfmMutex);
+    _external_memory->submit_request(sync_req);
+
+    if (is_core1) {
+        sem_acquire_blocking(&core1_wait_sem);
+    } else {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     }
 }
 

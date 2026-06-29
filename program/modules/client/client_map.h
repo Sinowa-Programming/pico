@@ -6,6 +6,9 @@
 #include "internal_memory.h"
 #include "virtual_file.h"
 
+extern VFM vfm;
+extern ExternalMemory external_memory;
+
 namespace CLIENT {
     uint8_t process_id;
 
@@ -25,6 +28,7 @@ namespace CLIENT {
     void pause_client_isr();
 
     // === Client program storing and loading ===
+    extern volatile uintptr_t load_data_buffer;
     extern volatile bool pause_on_client_store;   // Wait in the isr after everything is store( halting the program )
     extern volatile bool external_mem_notify_completion;
     const uint16_t STORE_IRQ_NUM    = 46;
@@ -80,23 +84,8 @@ namespace CLIENT {
     /// @brief To get the register state, an isr is needed to push all of the registers to the stack.
     void store_client_isr();
 
-    /// @brief Packs the ClientPCBStatic and tells ExternalMemory to transmit it as well as the dynamic data.
-    /// @param sw_frame The pushed software registers
-    /// @param hw_frame The pushed hardware registers
-    void store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return);
-
     /// @brief Loads the given software and hardware frames in the stack. Starts executing immediately once
     /// registers are loaded.
     void load_client_isr();
-
-    /// @brief 
-    /// List of tasks done to load:
-    ///     - All dirty pages are written.
-    ///     - VMM::mpu_enabled is updated
-    ///     - VMM::address_map is updated.
-    ///     - VFM::file_data is updated and the given files are opened.
-    ///     - Software and Hardware Frames are pushed to the stack.
-    ///     - Unsets pause and Launches the load_client_isr.
-    void load_client_C();
 }
 #endif // CLIENT_MAP_H

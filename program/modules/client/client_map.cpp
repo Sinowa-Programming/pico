@@ -96,7 +96,7 @@ void CLIENT::client_isr_setup()
     irq_set_enabled(SIO_FIFO_IRQ_NUM(1), true);
 }
 
-
+extern "C" void store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return);
 void CLIENT::store_client_isr()
 {
     __asm volatile (
@@ -122,9 +122,12 @@ void CLIENT::store_client_isr()
     );
 }
 
-void CLIENT::store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
+/// @brief Packs the ClientPCBStatic and tells ExternalMemory to transmit it as well as the dynamic data.
+/// @param sw_frame The pushed software registers
+/// @param hw_frame The pushed hardware registers
+extern "C" void store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
 {
-    client_pcb_snapshot.process_id = process_id;
+    client_pcb_snapshot.process_id = CLIENT::process_id;
 
     // Populate the ClientPCBFPU and ClientPCBStatic regs
     bool fpu_active = ((exc_return & (1 << 4)) == 0);
@@ -154,11 +157,11 @@ void CLIENT::store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
 
     // Copy Address Map
     client_pcb_snapshot.addr_map_size = vmm.get_address_map()->get_element_count();
-    memcpy((void *)client_address_map_snapshot, vmm.get_address_map(), sizeof(StaticAddressMap<VMM::ADJUSTED_ADDRESS_LIMIT>::AddressMap) * client_pcb_snapshot.addr_map_size);
+    memcpy((void *)CLIENT::client_address_map_snapshot, vmm.get_address_map(), sizeof(StaticAddressMap<VMM::ADJUSTED_ADDRESS_LIMIT>::AddressMap) * client_pcb_snapshot.addr_map_size);
 
     // Copy Virtual Files
     client_pcb_snapshot.open_file_cnt = vfm.get_open_file_cnt();
-    memcpy((void *)client_virtual_file_snapshot, vfm.get_file_data(), sizeof(VirtualFile) * client_pcb_snapshot.open_file_cnt);
+    memcpy((void *)CLIENT::client_virtual_file_snapshot, vfm.get_file_data(), sizeof(VirtualFile) * client_pcb_snapshot.open_file_cnt);
 
     // Send the Data to the External Memory manager to handle.
     MemoryRequest req {
@@ -170,25 +173,118 @@ void CLIENT::store_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
         .task = NULL
     };
     external_memory.submit_request(req);
-    external_mem_notify_completion = false;
+    CLIENT::external_mem_notify_completion = false;
 
     vmm.write_all_data();
-    while(!external_mem_notify_completion) {
+    vfm.write_all_data();
+    while(!CLIENT::external_mem_notify_completion) {
         tight_loop_contents();
     }
 
-    if(pause_on_client_store) {
-        client_paused = true;
+    if(CLIENT::pause_on_client_store) {
+        CLIENT::client_paused = true;
         // Launch the pause isr
         scb_hw->icsr = (1 << CLIENT::PAUSE_IRQ_NUM);
     }
 }
 
+extern "C" uint32_t load_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return);
 void CLIENT::load_client_isr()
 {
-    
+    __asm volatile (
+        " mrs r0, psp           \n"     // r0 = Process Stack Pointer
+
+        " tst lr, #0x10         \n"     // if( (1 << 4) == 0) {
+        " it eq                 \n"     //
+        " vstmdbeq r0!, {s16-s31}   \n" //      Push s16-s31
+                                        // }
+
+        " stmdb r0!, {r4-r11}   \n"     // Save r11 - r4 to the stack pointed at by r0. r0 now points at r4's location.
+
+        " mrs psp, r0           \n"     // psp = r0
+
+        " push {r0, lr}         \n"     // Push lr to the MSP stack. r0 needed for 8 bit alignment
+        " mov r1, lr            \n"     // r1 = exc_return
+
+        // r0 = address of the start of CpuSoftwareFrame
+        // r1 = EXC_RETURN
+        " bl load_client_C      \n"
+        // sp + 4 = updated EXC_RETURN
+
+        " str r0, [sp, #4]      \n"     // Overwrite the pushed lr with the new exc_return
+        " pop {r0, pc}          \n"
+    );
 }
 
-void CLIENT::load_client_C()
+/// @brief 
+/// List of tasks done to load:
+///     - All dirty pages are written.
+///     - process_id is updated
+///     - VMM::mpu_enabled is updated
+///     - VMM::address_map is updated.
+///     - VFM::file_data is updated and the given files are opened.
+///     - Software and Hardware Frames are pushed to the stack.
+///     - Unsets pause and Launches the load_client_isr.
+extern "C" uint32_t load_client_C(CpuSoftwareFrame *sw_frame, uint32_t exc_return)
 {
+    // --- Write all dirty pages ---
+    vmm.write_all_data();
+    vfm.write_all_data();
+
+    // --- Update Process ID ---
+    CLIENT::process_id = CLIENT::client_pcb_snapshot.process_id;
+
+    // --- Update MPU ---
+    vmm.set_mpu_enabled(CLIENT::client_pcb_snapshot.active_pages);
+
+    // --- Update VMM address map ---
+    memcpy(vmm.get_address_map(), (void*)CLIENT::client_address_map_snapshot,
+    sizeof(StaticAddressMap<VMM::ADJUSTED_ADDRESS_LIMIT>::AddressMap) * CLIENT::client_pcb_snapshot.addr_map_size);
+    vmm.get_address_map()->set_element_count(CLIENT::client_pcb_snapshot.addr_map_size);
+
+    // --- Overwrite files ---
+    memcpy(vfm.get_file_data(), (void*)CLIENT::client_virtual_file_snapshot,
+    sizeof(VirtualFile) * CLIENT::client_pcb_snapshot.open_file_cnt);
+
+    // Mark all files as non local so the first access will pull from the swap.
+    VirtualFile *file_data = vfm.get_file_data();
+    for(uint32_t i = 0; i < CLIENT::client_pcb_snapshot.open_file_cnt; ++i) {
+        if(file_data->remote_id != -1) {
+            file_data[i].local = false;
+        }
+    }
+
+    // === UPDATE REGISTERS ===
+    uintptr_t current_addr = (uintptr_t)sw_frame;
+
+    // Software registers (r4 - r11)
+    memcpy((void *)current_addr, (void *)&(CLIENT::client_pcb_snapshot.cpu_soft_regs), sizeof(CpuSoftwareFrame));
+    current_addr += sizeof(CpuSoftwareFrame);
+
+    // FPU software registers (s0 - s15)
+    if (CLIENT::client_pcb_snapshot.fpu_active) {
+        memcpy((void *)current_addr, (void *)&(CLIENT::client_pcb_fpu_snapshot.fpu_soft_regs), sizeof(SoftwareFpuFrame));
+        current_addr += sizeof(SoftwareFpuFrame);
+    }
+
+    // Hardware registers(r0-r3, r12, lr, pc, xpsr)
+    memcpy((void *)current_addr, (void *)&(CLIENT::client_pcb_snapshot.cpu_hard_regs), sizeof(CpuHardwareFrame));
+    current_addr += sizeof(CpuHardwareFrame);
+
+    // FPU hardware registers
+    if (CLIENT::client_pcb_snapshot.fpu_active) {
+        memcpy((void *)current_addr, (void *)&(CLIENT::client_pcb_fpu_snapshot.fpu_hard_regs), sizeof(CpuFpuHardwareFrame));
+    }
+
+    // Update the exc_return with the new FPU status
+    uint32_t new_exc_return = exc_return;
+    if (CLIENT::client_pcb_snapshot.fpu_active) {
+        new_exc_return &= ~(1 << 4); // fpu frame present
+    } else {
+        new_exc_return |= (1 << 4);  // fpu frame not present
+    }
+
+    CLIENT::client_paused = false;
+
+    return new_exc_return;
 }

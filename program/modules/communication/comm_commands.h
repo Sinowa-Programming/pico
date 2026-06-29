@@ -32,7 +32,6 @@ typedef enum {
     /* Client commands( Commands for the program running though the PAL ). */
 
     // Sets the client to a uint32_t address
-    // Sends the client a uint8_t process id.
     START_CLIENT = 0x1,
     // Pauses the client task, storing all of the registers and page details before
     // transmitting it back to the master.

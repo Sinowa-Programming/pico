@@ -21,6 +21,23 @@ typedef struct {
 static QueueHandle_t usb_command_queue = NULL;
 TaskHandle_t usb_command_task_tcb = NULL;
 
+// === Multi-Packet RX State Machine ===
+enum class RxState {
+    IDLE,           // No transfers occurring
+    EXT_MEM,        // Receiving a Page Table or File page
+    CLIENT_LOAD     // Receiving Client Snapshot data
+};
+
+static RxState current_rx_state = RxState::IDLE;    // The current state machine state
+static uint16_t expected_data_length = PAGE_SIZE;   // The size of the data being recieved
+static uint8_t* page_dest_ptr = nullptr;            // Pointer to where we are writing
+static uint32_t transfer_offset = 0;                // How many bytes we've written
+
+// A static buffer to hold all incoming pieces of the Client Snapshot
+static uint8_t client_load_buffer[1024];            // 1kb
+
+// =======================
+
 // Command handler task: runs potentially blocking operations (vmm.access, load_frame)
 void usb_command_task(void *param) {
     UsbCommand_t cmd;
@@ -33,6 +50,10 @@ void usb_command_task(void *param) {
                     _vprintf("After vmm access. Offset: 0x%x", cmd.vaddr - VIRTUAL_MEMORY_BASE);
                     CLIENT::load_frame(vmm.get_physical_ptr(cmd.vaddr));
                     CLIENT::start_client_task();
+                    break;
+                }
+                case LOAD_CLIENT: {
+                    irq_set_pending(CLIENT::LOAD_IRQ_NUM);
                     break;
                 }
                 default:
@@ -82,7 +103,7 @@ void usb_device_task(void *param) {
     }
 }
 
-uint16_t expected_data_length = PAGE_SIZE;
+uint16_t expected_data_length;
 
 // === VMM specific. This won't exist for the spi version ===
 // Helper to safely move data
@@ -99,25 +120,55 @@ void buffer_data_chunk(const uint8_t* src, size_t len) {
 }
 // ==========================================================
 
+// === Client Specific ===
+void unpack_client_buffer() {
+    uint32_t offset = 0;
+
+    memcpy((void*)&CLIENT::client_pcb_snapshot, client_load_buffer + offset, sizeof(CLIENT::ClientPCBStatic));
+    offset += sizeof(CLIENT::ClientPCBStatic);
+
+    if (CLIENT::client_pcb_snapshot.fpu_active) {
+        memcpy((void*)&CLIENT::client_pcb_fpu_snapshot, client_load_buffer + offset, sizeof(CLIENT::ClientPCBFPU));
+        offset += sizeof(CLIENT::ClientPCBFPU);
+    }
+
+    uint32_t addr_map_bytes = sizeof(StaticAddressMap<VMM::ADJUSTED_ADDRESS_LIMIT>::AddressMap) * CLIENT::client_pcb_snapshot.addr_map_size;
+    memcpy((void*)CLIENT::client_address_map_snapshot, client_load_buffer + offset, addr_map_bytes);
+    offset += addr_map_bytes;
+
+    uint32_t v_file_bytes = sizeof(VirtualFile) * CLIENT::client_pcb_snapshot.open_file_cnt;
+    memcpy((void*)CLIENT::client_virtual_file_snapshot, client_load_buffer + offset, v_file_bytes);
+
+    if (usb_command_queue != NULL) {
+        UsbCommand_t cmd = { .cmd = LOAD_CLIENT };
+        xQueueSend(usb_command_queue, &cmd, 0);
+    }
+}
+// =========================
+
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
     if(bufsize == 0)  {
         return;
     }
 
     // If we are already receiving a page, treat this entire packet as data
-    if (data_receiving) {
+    if (current_rx_state != RxState::IDLE) {
         buffer_data_chunk(buffer, bufsize);
 
-        if (transfer_offset >= PAGE_SIZE) {
+        if (transfer_offset >= expected_data_length) {
             // Transfer Complete!
-            data_receiving = false;
-            external_memory.notify_transfer_completion();
+            if (current_rx_state == RxState::EXT_MEM) {
+                external_memory.notify_transfer_completion();
+            } else if (current_rx_state == RxState::CLIENT_LOAD) {
+                unpack_client_buffer();
+            }
+            current_rx_state = RxState::IDLE;
         }
         tud_vendor_read_flush();
         return;
     }
 
-    // Ensure we have at least the header (MCU_ID + CMD)
+    // Ensure we have at least the header (MCU_ID + CMD + DATA_LENGTH)
     if (bufsize < sizeof(CommunicationHeader)) {
         return;
     }
@@ -138,7 +189,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             page_dest_ptr = external_memory.get_memory_request_sram_buffer();
             transfer_offset = 0;
             expected_data_length = payload_len;
-            data_receiving = true;
+            current_rx_state = RxState::EXT_MEM;
 
             // Handle payload included in THIS packet (after the 4 header bytes)
             if (bufsize > header_size) {
@@ -147,7 +198,7 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
             // Check if the entire payload somehow arrived in the first packet
             if (transfer_offset >= expected_data_length) {
-                data_receiving = false;
+                current_rx_state = RxState::IDLE;
                 external_memory.notify_transfer_completion();
             }
             break;
@@ -161,14 +212,14 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
 
         case PAGE_TABLE_ALLOC: {
             uint32_t vaddr;
-            memcpy(&vaddr, buffer + 4, sizeof(uint32_t));
+            memcpy(&vaddr, buffer + header_size, sizeof(uint32_t));
             external_memory.notify_transfer_completion((void *)vaddr);
             break;
         }
 
         case START_CLIENT: { // This also resets the client if it is actively running
             uint32_t vaddr;
-            memcpy(&vaddr, buffer + 4, sizeof(uint32_t));
+            memcpy(&vaddr, buffer + header_size, sizeof(uint32_t));
             // Enqueue the request for the command task to process so USB task doesn't block
             if (usb_command_queue != NULL) {
                 UsbCommand_t cmd = { .cmd = START_CLIENT, .vaddr = vaddr };
@@ -177,11 +228,25 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
             break;
         }
 
-        // There is no built-in, pico library way to do this.
-        // case STORE_CLIENT:
-        case LOAD_CLIENT:
-            multicore_reset_core1();
+        case LOAD_CLIENT: {
+            expected_data_length = payload_len;
+
+            page_dest_ptr = client_load_buffer;
+            transfer_offset = 0;
+            current_rx_state = RxState::CLIENT_LOAD;
+
+            // Handle payload included in THIS packet (after the 4 header bytes)
+            if (bufsize > header_size) {
+                buffer_data_chunk(buffer + header_size, bufsize - header_size);
+            }
+
+            // Check if the entire payload somehow arrived in the first packet
+            if (transfer_offset >= expected_data_length) {
+                current_rx_state = RxState::IDLE;
+                unpack_client_buffer();
+            }
             break;
+        }
         default:
             // An invalid command was sent
             break;

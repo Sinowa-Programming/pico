@@ -82,6 +82,7 @@ public:
 
     VirtualFile *get_file_data() { return file_data; };
     uint8_t get_open_file_cnt() { return num_occupied_files; };
+    void write_all_data();
 
     // Communication with External Memory
     void notify_completion(MemoryRequest *finished_req);

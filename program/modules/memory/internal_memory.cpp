@@ -284,6 +284,14 @@ void VMM::notify_completion(MemoryRequest *finished_req) {
     mutex_exit(&vmmMutex);
 }
 
+void *VMM::set_mpu_enabled(uint16_t *new_mpu_enabled)
+{
+    for(int i = 0; i < 3; ++i) {
+        if(new_mpu_enabled[i] != 0xFFFF) {
+            vmm.update_mpu_access(new_mpu_enabled[i], (VMM::MpuRegionSlot)i);   // TODO: VERIFY THIS
+        }
+    }
+}
 
 void VMM::access(uint32_t virtual_addr, MpuRegionSlot slot) {
     // Normalize the address by subtracting the base
